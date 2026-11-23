@@ -1,5 +1,5 @@
-"""Market research ETL v3.1.1 (2026-11-23).
-Changelog: v3.1.1 security filtering, expected 404 skips, durable rotation; v3.1.0 rotation; v3.0.5 dtype fix.
+"""Market research ETL v3.1.2 (2026-11-23).
+Changelog: v3.1.2 workflow-controlled batch size; v3.1.1 security filtering, expected 404 skips, durable rotation; v3.1.0 rotation; v3.0.5 dtype fix.
 Does not bypass source access restrictions."""
 import argparse
 import hashlib
@@ -247,7 +247,9 @@ def main():
             if not robots_allowed(session, url, cfg['contact_user_agent']):
                 raise SystemExit(f'robots.txt disallows collection: {url}')
         active = update_universe(universe, cfg["universe"])
-        limit = int(cfg.get('max_tickers', 0))
+        limit = int(os.environ.get('MARKET_MAX_TICKERS', cfg.get('max_tickers', 0)))
+        if limit <= 0 and os.environ.get('MARKET_MAX_TICKERS'):
+            raise SystemExit('MARKET_MAX_TICKERS must be a positive integer')
         total_active = len(active)
         cursor_path = DATA / 'state' / 'cursor.json'
         cursor = 0

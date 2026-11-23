@@ -37,3 +37,15 @@ Suggested commit: `feat(pipeline): v3.1.0 add dynamic universe rotation and qual
 - Avoid concatenating an empty `missing` frame; cast sector and industry columns explicitly.
 - Keep your existing authorized `config/settings.json` when deploying; the packaged config intentionally disables collection until permission is confirmed.
 - Filtering is not a guarantee that every discovered symbol is an operating-company common stock.
+
+## v3.1.2: automated daily collection and manual catch-up
+
+The GitHub Actions workflow `.github/workflows/collect.yml` runs **daily at 03:15 UTC**. Each scheduled run selects **100 tickers** from the rotating dynamic universe, checkpoints the Parquet files and cursor to the repository, and exits. At 4,919 tickers, this takes roughly 50 daily runs to complete one pass; it **does not refresh all 4,919 stocks every day**.
+
+To catch up faster, open **Actions → Collect market fundamentals → Run workflow** and select a batch size (25/50/100/200) and number of batches (1/5/10/20). Each successful batch is committed and pushed before the next starts. With 20 batches of 100, the workflow attempts 2,000 ticker pages, subject to provider permission and limits. GitHub Actions scheduled executions can be delayed.
+
+**Before deployment:** Preserve your existing working `config/settings.json`. The ZIP's default `allow_automated_collection` is false; enable collection only if the provider permits your intended use. Keep `universe=dynamic`, `rotate_tickers=true`, and `collect_finviz=true`. Workflow batch sizes override `max_tickers` using `MARKET_MAX_TICKERS`. Do not set `max_tickers=0` for scheduled runs. Ensure repository Actions permissions allow write access and that `data/` is committed. No rate-limit bypass is implemented; unexpected HTTP failures stop the batch. Do not start multiple workflows simultaneously.
+
+**Limitation:** A failed batch may have written local data but won't push it; the last successful checkpoint remains intact. The next run retries from the last committed cursor. The workflow does not provide per-ticker retry queues or automatic 429 backoff. Full-universe daily refresh would require a separately authorized, higher-throughput data source.
+
+**Suggested commit:** `feat(pipeline): v3.1.2 automate daily batches and checkpointed backfill`
