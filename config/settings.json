@@ -1,0 +1,16 @@
+{
+  "source": "stockanalysis",
+  "allow_automated_collection": false,
+  "contact_user_agent": "ResearchPipeline/2.0 (contact: YOUR_EMAIL)",
+  "request_delay_seconds": 5,
+  "timeout_seconds": 30,
+  "max_tickers": 10,
+  "universe": "exchange",
+  "collect_statistics": true,
+  "collect_financials": true,
+  "collect_prices": false,
+  "price_provider": "none",
+  "price_api_key_env": "PRICE_API_KEY",
+  "price_endpoint_template": "",
+  "price_format": "json_rows"
+}

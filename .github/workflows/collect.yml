@@ -1,0 +1,35 @@
+name: Collect market fundamentals
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 3 * * 2-6'
+permissions:
+  contents: write
+concurrency:
+  group: market-collection
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - run: python src/pipeline.py
+      - name: Commit successful data
+        if: success()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/
+          if ! git diff --cached --quiet; then
+            git commit -m 'data: refresh stock fundamentals'
+            git push
+          fi
