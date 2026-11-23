@@ -1,7 +1,7 @@
 {
   "source": "stockanalysis",
-  "allow_automated_collection": false,
-  "contact_user_agent": "MarketResearchPipeline/2.0.1 (contact: YOUR_EMAIL)",
+  "allow_automated_collection": true,
+  "contact_user_agent": "MarketResearchPipeline/3.0.2 (contact: knclanil@live.com)",
   "request_delay_seconds": 5,
   "timeout_seconds": 30,
   "max_tickers": 3,
@@ -14,5 +14,5 @@
   "price_endpoint_template": "",
   "price_format": "json_rows",
   "collect_finviz": true,
-  "collect_stockanalysis": true
+  "collect_stockanalysis": false
 }
