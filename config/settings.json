@@ -1,6 +1,6 @@
 {
   "source": "stockanalysis",
-  "allow_automated_collection": false,
+  "allow_automated_collection": true
   "contact_user_agent": "MarketResearchPipeline/2.0.1 (contact: YOUR_EMAIL)",
   "request_delay_seconds": 5,
   "timeout_seconds": 30,
