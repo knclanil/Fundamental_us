@@ -1,5 +1,5 @@
-"""Market research ETL v3.1.0 (2026-11-23).
-Changelog: v3.1.0 dynamic universe rotation and quality checks; v3.0.5 dtype fix.
+"""Market research ETL v3.1.1 (2026-11-23).
+Changelog: v3.1.1 security filtering, expected 404 skips, durable rotation; v3.1.0 rotation; v3.0.5 dtype fix.
 Does not bypass source access restrictions."""
 import argparse
 import hashlib
@@ -59,8 +59,13 @@ def parse_exchange(text, symbol_col):
     if 'Security Name' not in df.columns:
         raise ValueError('Missing Security Name column')
     # These directories include non-common securities; exclude obvious types and flag remaining for review.
-    reject = r'\b(warrant|right|unit|preferred|depositary share|notes due|bond|debenture|etn|fund|trust)\b'
+    reject = r'\b(?:warrants?|rights?|units?|preferred|preference|depositary shares?|notes due|bonds?|debentures?|etns?|funds?|trusts?)\b'
     df = df[~df['Security Name'].str.contains(reject, case=False, regex=True, na=False)]
+    # NASDAQ directory: NextShares (N) and ETF (Y) are not operating-company common shares.
+    if 'NextShares' in df.columns:
+        df = df[df['NextShares'] != 'Y']
+    # Some unit/warrant listings omit their security type in the name; FINVIZ 404s
+    # are handled explicitly downstream instead of guessing from ticker suffixes.
     return pd.DataFrame({'ticker': df[symbol_col].str.upper(), 'company_name': df['Security Name'],
                          'exchange': df['Listing Exchange'] if 'Listing Exchange' in df else 'NASDAQ'})
 
@@ -204,7 +209,10 @@ def update_universe(current, mode="dynamic"):
         # Do not deactivate on one missing snapshot; flag for review.
         missing = old[~old.ticker.isin(current.ticker)].copy()
         missing['is_active'] = old.loc[missing.index, 'is_active'].values if mode == 'custom' else False  # NOT confirmed delisted
-        current = pd.concat([current, missing], ignore_index=True)
+        if not missing.empty:
+            for col in ('sector', 'industry'):
+                missing[col] = missing[col].astype('string')
+            current = pd.concat([current, missing.reindex(columns=current.columns)], ignore_index=True)
     for column in ('sector', 'industry'):
         current[column] = current[column].astype('string')
     write_parquet(current, path)
@@ -306,6 +314,16 @@ def main():
                         write_parquet(instruments, DATA / 'dimensions/instruments.parquet')
                     log.append({'ticker': ticker, 'page': 'finviz', 'status': 'ok',
                                 'detail': str(count), 'at': now})
+                except requests.HTTPError as exc:
+                    if exc.response is not None and exc.response.status_code == 404:
+                        print(f'[SKIP] {ticker} | finviz | HTTP 404: symbol not available at provider', flush=True)
+                        log.append({'ticker': ticker, 'page': 'finviz', 'status': 'skipped',
+                                    'detail': 'HTTP 404: symbol not available at provider', 'at': utc_now()})
+                    else:
+                        print(f'[ERROR] {ticker} | finviz | {type(exc).__name__}: {exc}', flush=True)
+                        traceback.print_exc()
+                        log.append({'ticker': ticker, 'page': 'finviz', 'status': 'error',
+                                    'detail': str(exc)[:300], 'at': utc_now()})
                 except Exception as exc:
                     print(f'[ERROR] {ticker} | finviz | {type(exc).__name__}: {exc}', flush=True)
                     traceback.print_exc()
@@ -345,6 +363,8 @@ def main():
         errors = sum(x['status'] == 'error' for x in log)
         print(f'Processed {len(active)} tickers; {errors} page failures')
         successes = sum(x['status'] == 'ok' for x in log)
+        skips = sum(x['status'] == 'skipped' for x in log)
+        print(f'Pages successful: {successes}; unsupported skips: {skips}; unexpected failures: {errors}', flush=True)
         if not log or successes == 0 or errors:
             raise SystemExit(1)
         if rotate and limit > 0 and total_active > limit:
@@ -352,7 +372,7 @@ def main():
             cursor_path.write_text(json.dumps({'next_offset': (cursor + len(active)) % total_active,
                                                'universe_size': total_active,
                                                'updated_at': utc_now()}, indent=2) + '\n')
-        print(f'Quality gate passed: {successes} successful pages; {errors} errors', flush=True)
+        print(f'Quality gate passed: {successes} successful pages; {skips} expected skips; {errors} errors', flush=True)
 
     finally:
         session.close()

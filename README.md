@@ -28,3 +28,12 @@ Built on v3.0.5; preserves the verified FINVIZ snapshot extractor and StockAnaly
 - The cursor advances only on a completely successful run. Partial failures are retained in diagnostic artifact but will retry the same batch.
 
 Suggested commit: `feat(pipeline): v3.1.0 add dynamic universe rotation and quality gates`
+
+
+## v3.1.1 — 2026-11-23
+- Exclude clearly labeled units, warrants, rights, preferred shares, notes, funds and trusts from exchange directories using noncapturing regex groups; no suffix-only exclusions. Security-name filtering is best effort and may exclude some valid companies.
+- Treat **FINVIZ HTTP 404 only** as an expected `skipped` result. Other HTTP errors and parsing/quality failures still fail the batch. A batch with no successful pages also fails.
+- Advance `data/state/cursor.json` after a successful batch containing expected skips; commit the cursor with data using the existing workflow. If a batch has unexpected errors, it does not advance.
+- Avoid concatenating an empty `missing` frame; cast sector and industry columns explicitly.
+- Keep your existing authorized `config/settings.json` when deploying; the packaged config intentionally disables collection until permission is confirmed.
+- Filtering is not a guarantee that every discovered symbol is an operating-company common stock.
