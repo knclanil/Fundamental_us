@@ -1,7 +1,6 @@
-"""Market research ETL v3.0.5 (2026-11-23).
-Changelog: v3.0.3 actionable per-ticker diagnostics and durable failure logs; v3.0.0 FINVIZ integration.
-Does not bypass source access restrictions. Financial page HTML structure must be validated live.
-"""
+"""Market research ETL v3.1.0 (2026-11-23).
+Changelog: v3.1.0 dynamic universe rotation and quality checks; v3.0.5 dtype fix.
+Does not bypass source access restrictions."""
 import argparse
 import hashlib
 import io
@@ -75,10 +74,12 @@ def collect_universe(session, cfg):
             if col not in df:
                 df[col] = ''
         df = df[['ticker', 'company_name', 'exchange']]
-    else:
+    elif cfg['universe'] in ('dynamic', 'exchange'):
         a = fetch(session, NASDAQ, cfg['request_delay_seconds'], cfg['timeout_seconds'])
         b = fetch(session, OTHER, cfg['request_delay_seconds'], cfg['timeout_seconds'])
         df = pd.concat([parse_exchange(a, 'Symbol'), parse_exchange(b, 'ACT Symbol')], ignore_index=True)
+    else:
+        raise ValueError('universe must be custom or dynamic')
     df = df.drop_duplicates('ticker').sort_values('ticker').reset_index(drop=True)
     if len(df) < 1:
         raise ValueError('Universe empty; previous state retained')
@@ -179,11 +180,12 @@ def merge_records(path, incoming, keys, keep_revisions=False):
     return len(incoming)
 
 
-def update_universe(current):
+def update_universe(current, mode="dynamic"):
     path = DATA / 'dimensions' / 'instruments.parquet'
     old = load_existing(path)
     now = utc_now()
     current = current.copy()
+    current_tickers = current.ticker.tolist()
     current['instrument_id'] = current['ticker'].map(lambda s: hashlib.sha256(s.encode()).hexdigest()[:16])
     current['is_active'] = True
     current['first_seen'] = now
@@ -191,6 +193,8 @@ def update_universe(current):
     current['sector'] = pd.Series(pd.NA, index=current.index, dtype='string')
     current['industry'] = pd.Series(pd.NA, index=current.index, dtype='string')
     if not old.empty:
+        if mode != 'custom' and len(old) >= 100 and len(current) < int(len(old) * 0.65):
+            raise ValueError(f'Universe shrank unexpectedly ({len(old)} -> {len(current)}); refusing dimension overwrite')
         by_ticker = old.set_index('ticker')
         for idx, row in current.iterrows():
             t = row['ticker']
@@ -199,12 +203,12 @@ def update_universe(current):
                     current.at[idx, field] = by_ticker.loc[t, field]
         # Do not deactivate on one missing snapshot; flag for review.
         missing = old[~old.ticker.isin(current.ticker)].copy()
-        missing['is_active'] = False  # unconfirmed: never delete historical data
+        missing['is_active'] = old.loc[missing.index, 'is_active'].values if mode == 'custom' else False  # NOT confirmed delisted
         current = pd.concat([current, missing], ignore_index=True)
     for column in ('sector', 'industry'):
         current[column] = current[column].astype('string')
     write_parquet(current, path)
-    return current[current.is_active]
+    return current[current.ticker.isin(set(current_tickers))] if mode == "custom" else current[current.is_active]
 
 
 def main():
@@ -234,10 +238,23 @@ def main():
         for url in allowed:
             if not robots_allowed(session, url, cfg['contact_user_agent']):
                 raise SystemExit(f'robots.txt disallows collection: {url}')
-        active = update_universe(universe)
+        active = update_universe(universe, cfg["universe"])
         limit = int(cfg.get('max_tickers', 0))
-        if limit > 0:
+        total_active = len(active)
+        cursor_path = DATA / 'state' / 'cursor.json'
+        cursor = 0
+        rotate = bool(cfg.get('rotate_tickers', False))
+        if rotate and limit > 0 and total_active > limit:
+            if cursor_path.exists():
+                try:
+                    cursor = int(json.loads(cursor_path.read_text()).get('next_offset', 0)) % total_active
+                except (ValueError, TypeError, json.JSONDecodeError):
+                    cursor = 0
+            indices = [(cursor + i) % total_active for i in range(limit)]
+            active = active.iloc[indices].copy()
+        elif limit > 0:
             active = active.head(limit)
+        print(f'Universe size: {total_active}; selected: {len(active)}; rotation offset: {cursor}', flush=True)
         log = []
         for _, item in active.iterrows():
             ticker = item['ticker']
@@ -264,8 +281,14 @@ def main():
                     now = utc_now()
                     rows = parse_finviz_snapshot(html, ticker, now)
                     print(f'[OK] {ticker} | finviz | {len(rows)} metrics extracted', flush=True)
-                    if not rows:
-                        raise ValueError('FINVIZ returned zero snapshot metrics')
+                    required = set(cfg.get('finviz_required_metrics', ['Price', 'Market Cap', 'Volume']))
+                    found = {r['metric'] for r in rows}
+                    missing = required - found
+                    if missing:
+                        raise ValueError(f'FINVIZ quality check failed; missing metrics: {sorted(missing)}')
+                    minimum = int(cfg.get('finviz_min_metrics', 60))
+                    if len(found) < minimum:
+                        raise ValueError(f'FINVIZ quality check failed; {len(found)} unique metrics < {minimum}')
                     count = merge_records(DATA / 'finviz' / 'snapshots.parquet', rows,
                                           ['ticker', 'metric'], keep_revisions=True)
                     profile = parse_finviz_profile(html)
@@ -321,8 +344,16 @@ def main():
         write_parquet(combined, log_path)
         errors = sum(x['status'] == 'error' for x in log)
         print(f'Processed {len(active)} tickers; {errors} page failures')
-        if errors:
+        successes = sum(x['status'] == 'ok' for x in log)
+        if not log or successes == 0 or errors:
             raise SystemExit(1)
+        if rotate and limit > 0 and total_active > limit:
+            cursor_path.parent.mkdir(parents=True, exist_ok=True)
+            cursor_path.write_text(json.dumps({'next_offset': (cursor + len(active)) % total_active,
+                                               'universe_size': total_active,
+                                               'updated_at': utc_now()}, indent=2) + '\n')
+        print(f'Quality gate passed: {successes} successful pages; {errors} errors', flush=True)
+
     finally:
         session.close()
 

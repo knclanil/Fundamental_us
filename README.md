@@ -1,34 +1,30 @@
-# Market Pipeline v3.0.4 — FINVIZ full snapshot extraction
+# Market Data Pipeline v3.1.0 — dynamic universe, rotation, quality gates
 
-## Changes (2026-11-23)
-- Parses all metric/value pairs in FINVIZ snapshot table, not just first pair per row.
-- Supports 12-cell rows (6 pairs) and wrapped-cell variants.
-- Validates core metric labels and a minimum 40 fields; logs actual row cell counts and sampled labels when incomplete.
-- Preserves compound and missing values unchanged.
-- Uses `https://finviz.com/stock?t={TICKER}&p=d` for FINVIZ.
-- Includes 72-metric synthetic regression fixture and additional parser tests.
-- StockAnalysis collection disabled for initial FINVIZ-only validation.
+Built on v3.0.5; preserves the verified FINVIZ snapshot extractor and StockAnalysis modules.
 
-## Run
-1. Upload ZIP contents into your GitHub repository.
-2. Review FINVIZ terms and confirm authorization for automated collection.
-3. Only after authorization, set `allow_automated_collection` to `true` in `config/settings.json`.
-4. Run the workflow. Check `[OK] ... metrics extracted` and the diagnostics artifact.
-5. Compare saved values to the actual FINVIZ page before scaling up.
+## Configuration
 
-## Limitations
-The parser is tested against synthetic HTML resembling the provided screenshot, not live FINVIZ HTML. A page rendering the full table in JavaScript or using a different structure may still need adaptation. Do not disable the minimum metric validation just to make collection pass. FINVIZ permissions and rate limits still apply. `config/settings.json` ships with automated collection disabled intentionally.
+- `universe: "custom"`: read `config/tickers.csv`. `universe: "dynamic"`: retrieve exchange symbol directories. Exchange directories include instruments that may not be ordinary operating-company stocks; filters are approximate and need review.
+- `max_tickers`: number to process per run; `0` processes all selected tickers (not recommended without provider authorization).
+- `rotate_tickers: true`: with a positive max_tickers, advances a persisted cursor **only after a fully successful run**, so successive scheduled runs cover more symbols. This is batch rotation, **not** a guarantee of change-based HTTP skipping.
+- `finviz_min_metrics` and `finviz_required_metrics`: fail if a page has too few unique labels or lacks required labels. Some legitimate stocks may not have all metrics; adjust only after inspecting diagnostics.
+- `allow_automated_collection` remains **false** by default. Enable only after confirming the source permits the intended volume and use. FINVIZ and StockAnalysis are independent sources.
 
-## Suggested commit message
-`fix(pipeline): v3.0.4 - parse complete FINVIZ snapshot table and validate metrics`
+## Rollout
 
+1. Upload all ZIP files into the repository, preserving the existing authorized `config/settings.json` (merge new keys rather than overwriting your contact/permissions).
+2. Run `python -m pytest -q`, then `python src/pipeline.py --dry-run`.
+3. Start with `universe: "custom"`, `max_tickers: 3`, and `rotate_tickers: true` after permissions are confirmed.
+4. Test `universe: "dynamic"` with `max_tickers: 25`, inspect `data/execution_log_latest.csv`, `data/dimensions/instruments.parquet`, and `data/finviz/snapshots.parquet`.
+5. Increase gradually after confirming access rights, quality, and Git repository growth.
 
-## v3.0.5 — sector / industry dtype fix (2026-11-23)
+## Safeguards and limitations
 
-- Initialize `sector` and `industry` as pandas nullable string columns.
-- Repair dtype when loading existing Parquet files, including those written by v3.0.4.
-- Apply to both FINVIZ and StockAnalysis profile update paths.
-- Keep your existing `config/settings.json` when upgrading. The packaged config defaults to disabled collection; enable only after verifying source permissions.
-- This release does not change the FINVIZ HTML extractor.
+- The dynamic universe refuses an unexpected >35% shrink versus the previous stored dimension (for dynamic runs); missing symbols are marked inactive for review, **not confirmed delisted**.
+- Custom runs retain existing instruments instead of marking non-custom symbols inactive.
+- Snapshot Parquet preserves distinct raw values; identical repeated observations are deduplicated. **This is change-based storage, not a complete daily point-in-time snapshot**.
+- Git history grows with each rewritten Parquet. This release does **not** implement immutable partitioned historical storage or a stable identifier across ticker renames.
+- Collection and parsing against live sites were **not tested here**. The existing user's successful v3.0.5 GitHub run is the baseline.
+- The cursor advances only on a completely successful run. Partial failures are retained in diagnostic artifact but will retry the same batch.
 
-Commit: `fix(pipeline): v3.0.5 - repair sector and industry string dtypes`
+Suggested commit: `feat(pipeline): v3.1.0 add dynamic universe rotation and quality gates`
