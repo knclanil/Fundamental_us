@@ -1,4 +1,4 @@
-"""Market research ETL v3.0.4 (2026-11-23).
+"""Market research ETL v3.0.5 (2026-11-23).
 Changelog: v3.0.3 actionable per-ticker diagnostics and durable failure logs; v3.0.0 FINVIZ integration.
 Does not bypass source access restrictions. Financial page HTML structure must be validated live.
 """
@@ -188,8 +188,8 @@ def update_universe(current):
     current['is_active'] = True
     current['first_seen'] = now
     current['last_seen'] = now
-    current['sector'] = None
-    current['industry'] = None
+    current['sector'] = pd.Series(pd.NA, index=current.index, dtype='string')
+    current['industry'] = pd.Series(pd.NA, index=current.index, dtype='string')
     if not old.empty:
         by_ticker = old.set_index('ticker')
         for idx, row in current.iterrows():
@@ -201,6 +201,8 @@ def update_universe(current):
         missing = old[~old.ticker.isin(current.ticker)].copy()
         missing['is_active'] = False  # unconfirmed: never delete historical data
         current = pd.concat([current, missing], ignore_index=True)
+    for column in ('sector', 'industry'):
+        current[column] = current[column].astype('string')
     write_parquet(current, path)
     return current[current.is_active]
 
@@ -245,6 +247,8 @@ def main():
                 profile_html = fetch(session, base, cfg['request_delay_seconds'], cfg['timeout_seconds'])
                 profile = parse_profile(profile_html)
                 instruments = load_existing(DATA / 'dimensions/instruments.parquet')
+                for column in ('sector', 'industry'):
+                    instruments[column] = instruments[column].astype('string')
                 mask = instruments.ticker == ticker
                 for key in ['sector', 'industry']:
                     if profile[key]:
@@ -267,6 +271,11 @@ def main():
                     profile = parse_finviz_profile(html)
                     instruments = load_existing(DATA / 'dimensions/instruments.parquet')
                     if not instruments.empty and 'ticker' in instruments:
+                        for column in ('sector', 'industry'):
+                            if column not in instruments.columns:
+                                instruments[column] = pd.Series(pd.NA, index=instruments.index, dtype='string')
+                            else:
+                                instruments[column] = instruments[column].astype('string')
                         mask = instruments.ticker == ticker
                         for key in ('sector', 'industry'):
                             if profile[key] and key in instruments:

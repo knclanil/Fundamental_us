@@ -21,3 +21,14 @@ The parser is tested against synthetic HTML resembling the provided screenshot, 
 
 ## Suggested commit message
 `fix(pipeline): v3.0.4 - parse complete FINVIZ snapshot table and validate metrics`
+
+
+## v3.0.5 — sector / industry dtype fix (2026-11-23)
+
+- Initialize `sector` and `industry` as pandas nullable string columns.
+- Repair dtype when loading existing Parquet files, including those written by v3.0.4.
+- Apply to both FINVIZ and StockAnalysis profile update paths.
+- Keep your existing `config/settings.json` when upgrading. The packaged config defaults to disabled collection; enable only after verifying source permissions.
+- This release does not change the FINVIZ HTML extractor.
+
+Commit: `fix(pipeline): v3.0.5 - repair sector and industry string dtypes`
