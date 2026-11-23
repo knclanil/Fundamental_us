@@ -213,7 +213,11 @@ def main():
         print(json.dumps({'pages': PAGES, 'config': cfg, 'note': 'No network calls made'}, indent=2))
         return
     if not cfg['allow_automated_collection']:
-        raise SystemExit('Collection disabled. Verify source permissions and set allow_automated_collection=true.')
+        raise SystemExit('Automated collection is disabled. Verify provider permission, then set allow_automated_collection=true in config/settings.json.')
+    print('Automated collection enabled.')
+    print(f"Universe: {cfg.get('universe')}")
+    print(f"Maximum tickers: {cfg.get('max_tickers')}")
+    print(f"Request delay: {cfg.get('request_delay_seconds')} seconds")
     if 'YOUR_EMAIL' in cfg['contact_user_agent']:
         raise SystemExit('Set a real contact address in contact_user_agent.')
     session = requests.Session()

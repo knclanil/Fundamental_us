@@ -37,3 +37,6 @@
 
 ## Suggested commit message
 `feat: add dynamic stock universe and multi-statement parquet pipeline v2.0.0`
+
+## v2.0.1 test configuration
+Defaults to MU, AAPL, MSFT (custom universe, 3 tickers). Collection remains disabled until provider permissions are verified. After authorization, set `allow_automated_collection` to `true` in `config/settings.json`, replace `YOUR_EMAIL`, and run the workflow.
