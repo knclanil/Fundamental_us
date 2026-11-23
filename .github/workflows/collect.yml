@@ -22,7 +22,15 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
-      - run: python src/pipeline.py
+      - name: Run pipeline
+        run: python -u src/pipeline.py
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collection-diagnostics
+          path: data/execution_log_latest.csv
+          if-no-files-found: warn
       - name: Commit successful data
         if: success()
         run: |

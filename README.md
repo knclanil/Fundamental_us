@@ -60,3 +60,6 @@ that are not supported by FINVIZ; unavailable symbols are logged.
 
 Note: GitHub Actions will fail if any page fails. The pipeline is a testable
 prototype, not yet a production-ready licensed bulk data feed.
+
+## v3.0.3 diagnostics
+Per-ticker exceptions and tracebacks appear in GitHub Actions logs. `collection-diagnostics` artifact contains `execution_log_latest.csv` even if collection fails. A 403/429 indicates access restrictions; do not bypass them. Successful parsing still requires live validation.

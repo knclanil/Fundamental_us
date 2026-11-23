@@ -1,5 +1,5 @@
-"""Market research ETL v3.0.0 (2026-11-23).
-Changelog: v3.0.0 optional FINVIZ snapshot integration; v2.0.0 fundamentals.
+"""Market research ETL v3.0.3 (2026-11-23).
+Changelog: v3.0.3 actionable per-ticker diagnostics and durable failure logs; v3.0.0 FINVIZ integration.
 Does not bypass source access restrictions. Financial page HTML structure must be validated live.
 """
 import argparse
@@ -9,6 +9,7 @@ import json
 import os
 import re
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -258,6 +259,8 @@ def main():
                     html = fetch(session, finviz_url, cfg['request_delay_seconds'], cfg['timeout_seconds'])
                     now = utc_now()
                     rows = parse_finviz_snapshot(html, ticker, now)
+                    if not rows:
+                        raise ValueError('FINVIZ returned zero snapshot metrics')
                     count = merge_records(DATA / 'finviz' / 'snapshots.parquet', rows,
                                           ['ticker', 'metric'], keep_revisions=True)
                     profile = parse_finviz_profile(html)
@@ -270,7 +273,9 @@ def main():
                         write_parquet(instruments, DATA / 'dimensions/instruments.parquet')
                     log.append({'ticker': ticker, 'page': 'finviz', 'status': 'ok',
                                 'detail': str(count), 'at': now})
-                except (requests.RequestException, ValueError) as exc:
+                except Exception as exc:
+                    print(f'[ERROR] {ticker} | finviz | {type(exc).__name__}: {exc}', flush=True)
+                    traceback.print_exc()
                     log.append({'ticker': ticker, 'page': 'finviz', 'status': 'error',
                                 'detail': str(exc)[:300], 'at': utc_now()})
             for name, suffix in (PAGES.items() if cfg.get('collect_stockanalysis', True) else []):
@@ -291,8 +296,15 @@ def main():
                         path = DATA / 'financials' / 'observations.parquet'
                         count = merge_records(path, rows, ['ticker', 'statement', 'metric', 'period_label'], keep_revisions=True)
                     log.append({'ticker': ticker, 'page': name, 'status': 'ok', 'detail': str(count), 'at': now})
-                except (requests.RequestException, ValueError) as exc:
+                except Exception as exc:
+                    print(f'[ERROR] {ticker} | {name} | {type(exc).__name__}: {exc}', flush=True)
+                    traceback.print_exc()
                     log.append({'ticker': ticker, 'page': name, 'status': 'error', 'detail': str(exc)[:300], 'at': utc_now()})
+        # Save a human-readable log that can be uploaded even when the job fails.
+        DATA.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(log, columns=['ticker','page','status','detail','at']).to_csv(DATA / 'execution_log_latest.csv', index=False)
+        for entry in log:
+            print(f"[RESULT] {entry['ticker']} | {entry['page']} | {entry['status']} | {entry['detail']}", flush=True)
         log_path = DATA / 'execution_log.parquet'
         existing = load_existing(log_path)
         combined = pd.concat([existing, pd.DataFrame(log)], ignore_index=True)
