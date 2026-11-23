@@ -40,3 +40,23 @@
 
 ## v2.0.1 test configuration
 Defaults to MU, AAPL, MSFT (custom universe, 3 tickers). Collection remains disabled until provider permissions are verified. After authorization, set `allow_automated_collection` to `true` in `config/settings.json`, replace `YOUR_EMAIL`, and run the workflow.
+
+
+## v3.0.0 — FINVIZ overview snapshot (2026-11-23)
+
+Adds `src/finviz.py` and `collect_finviz` setting. Preserves each FINVIZ snapshot
+metric as an original label and raw value, including compound values. Records
+are written to `data/finviz/snapshots.parquet`. Missing or changed HTML causes
+a logged failure, not silently fabricated values. Sector and industry are best effort.
+
+**Important:** No live FINVIZ HTML access or 3,000-ticker collection has been
+validated. The unit tests use synthetic HTML. Do not enable automated collection
+until permission for the intended providers, volumes and usage has been verified.
+Set `allow_automated_collection=true` only after authorization, and replace
+`YOUR_EMAIL` in `contact_user_agent`. For FINVIZ-only testing, set
+`collect_stockanalysis=false` and `collect_finviz=true`. The dynamic universe
+uses Nasdaq Trader exchange symbol directories and may include instruments
+that are not supported by FINVIZ; unavailable symbols are logged.
+
+Note: GitHub Actions will fail if any page fails. The pipeline is a testable
+prototype, not yet a production-ready licensed bulk data feed.

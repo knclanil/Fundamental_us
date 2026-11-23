@@ -12,5 +12,7 @@
   "price_provider": "none",
   "price_api_key_env": "PRICE_API_KEY",
   "price_endpoint_template": "",
-  "price_format": "json_rows"
+  "price_format": "json_rows",
+  "collect_finviz": true,
+  "collect_stockanalysis": true
 }

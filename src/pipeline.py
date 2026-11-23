@@ -1,5 +1,5 @@
-"""Market research ETL v2.0.0 (2026-11-23).
-Changelog: v2.0.0 multi-page financials, dynamic universe, parquet, source checks.
+"""Market research ETL v3.0.0 (2026-11-23).
+Changelog: v3.0.0 optional FINVIZ snapshot integration; v2.0.0 fundamentals.
 Does not bypass source access restrictions. Financial page HTML structure must be validated live.
 """
 import argparse
@@ -17,6 +17,7 @@ from urllib.robotparser import RobotFileParser
 import duckdb
 import pandas as pd
 import requests
+from finviz import parse_finviz_snapshot, parse_finviz_profile
 from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -224,8 +225,9 @@ def main():
     session.headers.update({'User-Agent': cfg['contact_user_agent']})
     try:
         universe = collect_universe(session, cfg)
-        allowed = [BASE.format('mu') + suffix for suffix in PAGES.values()]
-        allowed.append(BASE.format('mu'))
+        allowed = ([BASE.format('mu') + suffix for suffix in PAGES.values()] + [BASE.format('mu')]) if cfg.get('collect_stockanalysis', True) else []
+        if cfg.get('collect_finviz', False):
+            allowed.append('https://finviz.com/quote.ashx?t=MU')
         for url in allowed:
             if not robots_allowed(session, url, cfg['contact_user_agent']):
                 raise SystemExit(f'robots.txt disallows collection: {url}')
@@ -237,7 +239,8 @@ def main():
         for _, item in active.iterrows():
             ticker = item['ticker']
             base = BASE.format(symbol_slug(ticker))
-            try:
+            if cfg.get('collect_stockanalysis', True):
+              try:
                 profile_html = fetch(session, base, cfg['request_delay_seconds'], cfg['timeout_seconds'])
                 profile = parse_profile(profile_html)
                 instruments = load_existing(DATA / 'dimensions/instruments.parquet')
@@ -246,9 +249,31 @@ def main():
                     if profile[key]:
                         instruments.loc[mask, key] = profile[key]
                 write_parquet(instruments, DATA / 'dimensions/instruments.parquet')
-            except requests.RequestException as exc:
+              except requests.RequestException as exc:
                 log.append({'ticker': ticker, 'page': 'profile', 'status': 'error', 'detail': str(exc)[:300], 'at': utc_now()})
-            for name, suffix in PAGES.items():
+            if cfg.get('collect_finviz', False):
+                from urllib.parse import quote
+                finviz_url = 'https://finviz.com/quote.ashx?t=' + quote(ticker, safe='')
+                try:
+                    html = fetch(session, finviz_url, cfg['request_delay_seconds'], cfg['timeout_seconds'])
+                    now = utc_now()
+                    rows = parse_finviz_snapshot(html, ticker, now)
+                    count = merge_records(DATA / 'finviz' / 'snapshots.parquet', rows,
+                                          ['ticker', 'metric'], keep_revisions=True)
+                    profile = parse_finviz_profile(html)
+                    instruments = load_existing(DATA / 'dimensions/instruments.parquet')
+                    if not instruments.empty and 'ticker' in instruments:
+                        mask = instruments.ticker == ticker
+                        for key in ('sector', 'industry'):
+                            if profile[key] and key in instruments:
+                                instruments.loc[mask, key] = profile[key]
+                        write_parquet(instruments, DATA / 'dimensions/instruments.parquet')
+                    log.append({'ticker': ticker, 'page': 'finviz', 'status': 'ok',
+                                'detail': str(count), 'at': now})
+                except (requests.RequestException, ValueError) as exc:
+                    log.append({'ticker': ticker, 'page': 'finviz', 'status': 'error',
+                                'detail': str(exc)[:300], 'at': utc_now()})
+            for name, suffix in (PAGES.items() if cfg.get('collect_stockanalysis', True) else []):
                 if name == 'statistics' and not cfg['collect_statistics']:
                     continue
                 if name != 'statistics' and not cfg['collect_financials']:
