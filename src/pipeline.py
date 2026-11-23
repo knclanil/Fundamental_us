@@ -1,4 +1,4 @@
-"""Market research ETL v3.0.3 (2026-11-23).
+"""Market research ETL v3.0.4 (2026-11-23).
 Changelog: v3.0.3 actionable per-ticker diagnostics and durable failure logs; v3.0.0 FINVIZ integration.
 Does not bypass source access restrictions. Financial page HTML structure must be validated live.
 """
@@ -254,11 +254,12 @@ def main():
                 log.append({'ticker': ticker, 'page': 'profile', 'status': 'error', 'detail': str(exc)[:300], 'at': utc_now()})
             if cfg.get('collect_finviz', False):
                 from urllib.parse import quote
-                finviz_url = 'https://finviz.com/quote.ashx?t=' + quote(ticker, safe='')
+                finviz_url = 'https://finviz.com/stock?t=' + quote(ticker, safe='') + '&p=d'
                 try:
                     html = fetch(session, finviz_url, cfg['request_delay_seconds'], cfg['timeout_seconds'])
                     now = utc_now()
                     rows = parse_finviz_snapshot(html, ticker, now)
+                    print(f'[OK] {ticker} | finviz | {len(rows)} metrics extracted', flush=True)
                     if not rows:
                         raise ValueError('FINVIZ returned zero snapshot metrics')
                     count = merge_records(DATA / 'finviz' / 'snapshots.parquet', rows,
