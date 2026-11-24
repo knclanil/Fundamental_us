@@ -7,6 +7,7 @@ from pymongo import MongoClient,UpdateOne,ASCENDING
 from .sec_client import SecClient
 from .universe import fetch_large_caps,join_sec
 from .normalize import normalize
+from .migrate import migrate_all
 
 def now(): return datetime.now(timezone.utc)
 def aware(value):
@@ -21,8 +22,7 @@ def due(state,refresh_days):
 
 def indexes(db):
     db.companies.create_index('ticker')
-    db.financial_annual.create_index([('cik',ASCENDING),('period_end',ASCENDING)],unique=True)
-    db.financial_quarterly.create_index([('cik',ASCENDING),('period_end',ASCENDING)],unique=True)
+    # Unique financial indexes are built only after safe archival migration.
     db.largecap_collection_state.create_index('last_success_at')
 
 def run(db,sec,limit,refresh_days,years,min_cap):
@@ -30,9 +30,10 @@ def run(db,sec,limit,refresh_days,years,min_cap):
     universe=fetch_large_caps(min_cap)
     companies=join_sec(universe,sec.tickers())
     if not companies:raise RuntimeError('No SEC-mapped large caps; aborting')
+    print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
     run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
-    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.2'})
+    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.3'})
     try:
         for company in companies[:limit]:
             counts['examined']+=1

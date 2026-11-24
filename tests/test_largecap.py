@@ -61,3 +61,18 @@ class LargeCapTests(unittest.TestCase):
         self.assertEqual(fetch_large_caps(session=session)[0]['universe_source'],'bootstrap_partial')
 
 if __name__=='__main__':unittest.main()
+
+class MigrationTests(unittest.TestCase):
+    def test_best_document_has_more_metrics(self):
+        from fundamentals.migrate import score
+        a={'_id':1,'metrics':{'revenue':10}}
+        b={'_id':2,'metrics':{'revenue':10,'assets':20}}
+        self.assertGreater(score(b),score(a))
+    def test_migration_empty_collection(self):
+        from unittest.mock import MagicMock
+        from fundamentals.migrate import migrate_collection
+        db=MagicMock()
+        db.__getitem__.return_value.aggregate.return_value=iter([])
+        result=migrate_collection(db,'financial_quarterly')
+        self.assertEqual(result['removed'],0)
+        db.__getitem__.return_value.create_index.assert_called_once()

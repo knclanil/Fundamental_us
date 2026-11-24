@@ -1,22 +1,20 @@
-# MaketData v4.1.2 — Fiscal-period and balance-sheet fix
+# MaketData v4.1.3 — S&P 500 Fundamentals
 
-This is a **drop-in update** to v4.1.1, not a replacement for the old v4.0.3 POC.
+This is a drop-in update of v4.1.2, fixing the `E11000 duplicate key` failure when adding a unique index to pre-existing financial collections.
 
-## Install
-Copy the included `fundamentals/`, `tests/test_largecap.py`, and `.github/workflows/largecap-fundamentals.yml` into the repository. Keep existing secrets `MONGODB_URI`, `SEC_USER_AGENT` and old collections.
+## Installation
+Copy the package contents into your existing MaketData repository, retaining the relative paths. Do not delete existing MongoDB collections. Commit and run **S&P 500 fundamentals v4.1.3** with `limit=10`, `refresh_days=0` to force a refresh of the first ten tickers.
 
-Run GitHub Actions **S&P 500 fundamentals v4.1.2** with `limit=10`, `refresh_days=0` to refresh the first ten companies even if collected recently. Then inspect `financial_annual` for `ACN`, `period_end=2026-08-31` and `period=FY2026`. Verify `metric_sources` and available balance sheet fields.
+## Migration safety
+On startup, the pipeline groups existing records by `(cik, period_end)` in `financial_annual` and `financial_quarterly`. For duplicate groups it picks the record with the most populated metrics as the canonical record, merges missing metric fields, archives **each removed original document** in `financial_duplicate_archive`, verifies the archive copy exists, and only then removes the extra originals. Conflicting values are retained in the archived documents. It creates the unique indexes after the duplicate groups have been reconciled. The migration is designed to be safe to rerun.
 
-## Data quality caveats
-- SEC Company Facts `fy`/`fp` represent filing metadata, not a perfect standalone fiscal-period identifier for every amended/restated filing. Each stored metric includes its own SEC source details. Compare against original filings for critical decisions.
-- Quarterly flows are only stored when the SEC supplies a standalone 70–110 day value; YTD 6/9 month figures are not treated as quarterly. Q4 is not automatically synthesized. Quarterly coverage may therefore be incomplete.
-- Balance sheet items use SEC instant facts and are matched to annual/quarterly reporting dates. Fields missing from SEC facts remain absent.
-- Financial period keys use `cik` and `period_end`; old unique indexes on `cik,period` may remain but no data is deleted. A future migration can safely rebuild indexes after auditing historical data.
-- Existing legacy `CY...` records are updated only for companies and dates reprocessed. Run a staged backfill to migrate all companies.
-- `--min-market-cap` is retained for CLI compatibility, but S&P 500 universe is a proxy, not actual $10B filtering.
-- Five-year cutoff applies to new normalization, but older existing records are **not yet pruned**. Do not assume database retention has been enforced.
+**Important:** This migration intentionally consolidates documents with the same CIK and end date. If records represent different durations or fiscal contexts, their originals remain in the archive, but a later schema update should use a more expressive period identity. It does not independently validate the accuracy of the SEC normalization.
 
-## Validation
-`python -m unittest discover -s tests -p test_largecap.py -v`
+## Secrets
+`MONGODB_URI` and `SEC_USER_AGENT` in GitHub Actions; `MONGODB_DATABASE` defaults to `maketdata`.
 
-Commit: `fix(v4.1.2): correct SEC fiscal labels, balance sheet facts and quarterly flows`
+## Validate
+Inspect the `MIGRATION_SUMMARY` and `COLLECTION_SUMMARY` logs, then verify `financial_annual`, `financial_quarterly`, and `financial_duplicate_archive` in MongoDB Atlas. Do not delete the archive until you have audited it. The archive temporarily uses additional free-tier storage.
+
+## Suggested commit
+`fix(v4.1.3): archive and reconcile duplicate financial periods before indexing`
