@@ -40,34 +40,47 @@ jobs:
         env:
           MARKET_MAX_TICKERS: ${{ github.event.inputs.batch_size || '100' }}
           BATCHES: ${{ github.event.inputs.batches || '1' }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for ((i=1; i<=BATCHES; i++)); do
-            echo "::group::Batch $i/$BATCHES ($MARKET_MAX_TICKERS tickers)"
-            # Capture the exit code, but ALWAYS commit the successful records,
-            # retry queue and cursor before reporting a genuine failure.
+            echo "::group::Batch $i/$BATCHES"
             set +e
             python -u src/pipeline.py
-            pipeline_status=$?
+            status=$?
             set -e
+            # The checkpoint is written to disk before any push.
+            # Artifacts are uploaded in a separate always() step, even on failure.
             git add data/
             if ! git diff --cached --quiet; then
               git commit -m "data: checkpoint fundamentals batch $i/$BATCHES"
-              git push
+              for attempt in 1 2 3; do
+                git fetch origin main
+                if ! git rebase origin/main; then
+                  git rebase --abort || true
+                  echo "::error::Data conflict. Restore from workflow artifact; refusing to overwrite remote Parquet."
+                  exit 1
+                fi
+                if git push origin HEAD:main; then break; fi
+                if (( attempt == 3 )); then
+                  echo "::error::Push rejected; artifact backup available. Do not force push."
+                  exit 1
+                fi
+                sleep 10
+              done
             fi
             echo "::endgroup::"
-            if (( pipeline_status != 0 )); then
-              echo "::error::Pipeline encountered an unexpected error. Successful data and retry queue were committed."
-              exit "$pipeline_status"
-            fi
+            if (( status != 0 )); then exit "$status"; fi
           done
-      - name: Upload diagnostics
+      - name: Backup all collected data and state
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: collection-diagnostics-${{ github.run_id }}
-          path: data/execution_log_latest.csv
+          name: market-data-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            data/
           if-no-files-found: warn
+          retention-days: 30

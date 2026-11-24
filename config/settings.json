@@ -1,10 +1,10 @@
 {
   "source": "stockanalysis",
-  "allow_automated_collection": true,
+  "allow_automated_collection": false,
   "contact_user_agent": "MarketResearchPipeline/3.0.4 (contact: knclanil@live.com)",
   "request_delay_seconds": 5,
   "timeout_seconds": 30,
-  "max_tickers": 25,
+  "max_tickers": 100,
   "universe": "dynamic",
   "collect_statistics": true,
   "collect_financials": true,
@@ -21,5 +21,11 @@
     "Price",
     "Market Cap",
     "Volume"
-  ]
+  ],
+  "collection_strategy": "market_cap_priority",
+  "market_cap_seed_csv": "config/market_caps.csv",
+  "refresh_after_hours": 24,
+  "alpha_vantage_enabled": true,
+  "alpha_vantage_daily_budget": 20,
+  "alpha_vantage_delay_seconds": 1
 }

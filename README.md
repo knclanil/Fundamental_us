@@ -1,61 +1,46 @@
-# Market Data Pipeline v3.1.0 — dynamic universe, rotation, quality gates
+# MaketData v3.2.0 — Market-cap priority + recoverable backups
 
-Built on v3.0.5; preserves the verified FINVIZ snapshot extractor and StockAnalysis modules.
+Version: 3.2.0 (2026-11-24)
 
-## Configuration
+## Changelog
+- 3.2.0: prioritize known mega-cap, large-cap, mid-cap, then smaller stocks; skip snapshots refreshed in the past 24h; optional authorized market-cap CSV seed; backup all data as workflow artifacts even on failure; protect against non-fast-forward push by refusing to overwrite remote.
+- 3.1.3: fund detection, 404 skips, failure queue.
 
-- `universe: "custom"`: read `config/tickers.csv`. `universe: "dynamic"`: retrieve exchange symbol directories. Exchange directories include instruments that may not be ordinary operating-company stocks; filters are approximate and need review.
-- `max_tickers`: number to process per run; `0` processes all selected tickers (not recommended without provider authorization).
-- `rotate_tickers: true`: with a positive max_tickers, advances a persisted cursor **only after a fully successful run**, so successive scheduled runs cover more symbols. This is batch rotation, **not** a guarantee of change-based HTTP skipping.
-- `finviz_min_metrics` and `finviz_required_metrics`: fail if a page has too few unique labels or lacks required labels. Some legitimate stocks may not have all metrics; adjust only after inspecting diagnostics.
-- `allow_automated_collection` remains **false** by default. Enable only after confirming the source permits the intended volume and use. FINVIZ and StockAnalysis are independent sources.
+## Critical limitation
+Exchange symbol directories **do not contain market capitalization**. The pipeline ranks stocks using **existing FINVIZ snapshot Market Cap values** and/or `config/market_caps.csv` with columns `ticker,market_cap_usd` from a provider you are authorized to use. An example file is supplied but is **not** used. Without a comprehensive seed, uncollected stocks are **unknown cap** and processed after known-cap stocks, not truly large-cap-first. To guarantee mega/large/mid-first for all ~4,919 tickers, supply an up-to-date, licensed market-cap seed covering the universe. No market-cap values are invented.
 
-## Rollout
+## Deploy
+1. Extract ZIP into the existing repo. **Do not delete or overwrite existing `data/` files**. Keep your existing `config/settings.json` authorized-access settings; merge the new `collection_strategy`, `market_cap_seed_csv`, and `refresh_after_hours` keys.
+2. Optionally add `config/market_caps.csv` from a permitted data provider. The example is illustrative only.
+3. Keep `allow_automated_collection` disabled until you have verified provider permissions. This package ships with it disabled.
+4. Commit the code, then run Actions > Collect market fundamentals. The workflow is scheduled daily at 03:15 UTC.
+5. On failed pushes, download the `market-data-<run>-<attempt>` artifact before it expires. **Do not blindly overwrite or force-push** the repo: reconcile the saved Parquet and state files with current main.
 
-1. Upload all ZIP files into the repository, preserving the existing authorized `config/settings.json` (merge new keys rather than overwriting your contact/permissions).
-2. Run `python -m pytest -q`, then `python src/pipeline.py --dry-run`.
-3. Start with `universe: "custom"`, `max_tickers: 3`, and `rotate_tickers: true` after permissions are confirmed.
-4. Test `universe: "dynamic"` with `max_tickers: 25`, inspect `data/execution_log_latest.csv`, `data/dimensions/instruments.parquet`, and `data/finviz/snapshots.parquet`.
-5. Increase gradually after confirming access rights, quality, and Git repository growth.
+## Collection logic
+- Market cap thresholds (USD): mega >=200B; large >=10B; mid >=2B; small >=300M; micro >=50M; nano <50M; unknown last.
+- First prioritize not-yet-collected stocks within each cap tier; stocks with a `Price` observation younger than 24h are skipped.
+- Already collected but stale stocks can be refreshed. Source metrics with changed values retain revisions as in v3.1.3.
+- `failed_tickers.json` persists errors, but retries remain subject to priority/refresh logic.
+- `cursor.json` is not used in priority mode; existing cursor is left untouched for rollback.
+- A `git push` conflict is not resolved automatically because binary Parquet files cannot be safely rebased. An artifact backup is uploaded even if push fails.
+- Existing ticker filtering and FINVIZ page validation remain unchanged.
 
-## Safeguards and limitations
+## Checks
+Run `python -m pytest -q`. Live collection and provider permissions must be validated in GitHub Actions.
 
-- The dynamic universe refuses an unexpected >35% shrink versus the previous stored dimension (for dynamic runs); missing symbols are marked inactive for review, **not confirmed delisted**.
-- Custom runs retain existing instruments instead of marking non-custom symbols inactive.
-- Snapshot Parquet preserves distinct raw values; identical repeated observations are deduplicated. **This is change-based storage, not a complete daily point-in-time snapshot**.
-- Git history grows with each rewritten Parquet. This release does **not** implement immutable partitioned historical storage or a stable identifier across ticker renames.
-- Collection and parsing against live sites were **not tested here**. The existing user's successful v3.0.5 GitHub run is the baseline.
-- The cursor advances only on a completely successful run. Partial failures are retained in diagnostic artifact but will retry the same batch.
-
-Suggested commit: `feat(pipeline): v3.1.0 add dynamic universe rotation and quality gates`
+Suggested commit: `feat(pipeline): v3.2.0 market-cap priority, incremental selection and artifact backups`
 
 
-## v3.1.1 — 2026-11-23
-- Exclude clearly labeled units, warrants, rights, preferred shares, notes, funds and trusts from exchange directories using noncapturing regex groups; no suffix-only exclusions. Security-name filtering is best effort and may exclude some valid companies.
-- Treat **FINVIZ HTTP 404 only** as an expected `skipped` result. Other HTTP errors and parsing/quality failures still fail the batch. A batch with no successful pages also fails.
-- Advance `data/state/cursor.json` after a successful batch containing expected skips; commit the cursor with data using the existing workflow. If a batch has unexpected errors, it does not advance.
-- Avoid concatenating an empty `missing` frame; cast sector and industry columns explicitly.
-- Keep your existing authorized `config/settings.json` when deploying; the packaged config intentionally disables collection until permission is confirmed.
-- Filtering is not a guarantee that every discovered symbol is an operating-company common stock.
+## v3.2.1 — Alpha Vantage free-tier market-cap enrichment (2026-11-24)
 
-## v3.1.2: automated daily collection and manual catch-up
+- Set GitHub repository Actions secret `ALPHA_VANTAGE_API_KEY`; never commit the key.
+- The `OVERVIEW` API is used only to enrich previously unknown market caps, not to replace FINVIZ extraction.
+- `data/state/alpha_market_caps.json` caches successful and unavailable lookups; `data/state/alpha_quota.json` tracks requests used per UTC date. Both must be committed/preserved with `data/`.
+- Default budget is **20 requests per UTC day**, below the commonly published free allowance of 25/day. Confirm the provider's current quota and your account entitlement; set `alpha_vantage_daily_budget` lower if needed.
+- Market caps from the local cache feed the existing priority sorter. Unclassified symbols remain last; a complete guaranteed large-cap-first ranking still requires full-universe classification or a licensed seed feed.
+- If the secret is absent, the pipeline still works with existing FINVIZ market caps and an optional authorized CSV.
+- To prevent spending quota across concurrent runs, use the workflow concurrency group and keep state commits successful. If Git push fails, **stop subsequent runs until you recover the artifact and reconcile the quota state**, since the runner-local counter may not have been persisted.
+- The workflow artifact backs up the `data/` folder on success or failure, with 30-day retention. It is not permanent storage. Git push retries use fetch/rebase; Parquet conflicts require manual reconciliation, never force-push.
+- Existing `config/settings.json` in your repo is user-specific: merge the new three `alpha_vantage_*` settings; do not overwrite your working provider permissions.
 
-The GitHub Actions workflow `.github/workflows/collect.yml` runs **daily at 03:15 UTC**. Each scheduled run selects **100 tickers** from the rotating dynamic universe, checkpoints the Parquet files and cursor to the repository, and exits. At 4,919 tickers, this takes roughly 50 daily runs to complete one pass; it **does not refresh all 4,919 stocks every day**.
-
-To catch up faster, open **Actions → Collect market fundamentals → Run workflow** and select a batch size (25/50/100/200) and number of batches (1/5/10/20). Each successful batch is committed and pushed before the next starts. With 20 batches of 100, the workflow attempts 2,000 ticker pages, subject to provider permission and limits. GitHub Actions scheduled executions can be delayed.
-
-**Before deployment:** Preserve your existing working `config/settings.json`. The ZIP's default `allow_automated_collection` is false; enable collection only if the provider permits your intended use. Keep `universe=dynamic`, `rotate_tickers=true`, and `collect_finviz=true`. Workflow batch sizes override `max_tickers` using `MARKET_MAX_TICKERS`. Do not set `max_tickers=0` for scheduled runs. Ensure repository Actions permissions allow write access and that `data/` is committed. No rate-limit bypass is implemented; unexpected HTTP failures stop the batch. Do not start multiple workflows simultaneously.
-
-**Limitation:** A failed batch may have written local data but won't push it; the last successful checkpoint remains intact. The next run retries from the last committed cursor. The workflow does not provide per-ticker retry queues or automatic 429 backoff. Full-universe daily refresh would require a separately authorized, higher-throughput data source.
-
-**Suggested commit:** `feat(pipeline): v3.1.2 automate daily batches and checkpointed backfill`
-
-## v3.1.3 — ETF classification and failure-safe checkpoints (2026-11-24)
-
-- Excludes ETFs when exchange symbol-directory ETF flags are available and excludes explicit ETF/ETP descriptions.
-- Recognizes fund-specific FINVIZ snapshot layouts (e.g. GRN: AUM, Expense, ETF Type) and records a **skip**, not a stock parser error. Other unrecognized pages remain errors.
-- Persists `data/state/failed_tickers.json` for unexpected failures. A later successful result removes that ticker/page from the queue. **Automatic retry of queued entries is not yet implemented**; retry those tickers explicitly after investigation.
-- Advances rotation after a completed attempted batch, even if an individual ticker fails, and records failures for later retry.
-- GitHub Actions now commits all `data/` changes **before** failing the job for unexpected errors. A failure in the Git push itself still prevents persistence; inspect the workflow logs.
-- Keeps the 03:15 UTC daily schedule and manual multi-batch workflow. Do not exceed provider-authorized request volumes.
-- **Preserve your current working `config/settings.json`** when deploying. The ZIP contains automated collection disabled by default.
+Suggested commit: `feat(pipeline): v3.2.1 add free-tier Alpha Vantage cap enrichment and quota cache`

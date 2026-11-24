@@ -1,4 +1,4 @@
-"""Market research ETL v3.1.3 (2026-11-24).
+"""Market research ETL v3.2.1 (2026-11-24).
 Changelog: v3.1.3 ETF classification, recoverable error queue, durable failed-run commits; v3.1.2 workflow-controlled batch size; v3.1.1 security filtering, expected 404 skips, durable rotation; v3.1.0 rotation; v3.0.5 dtype fix.
 Does not bypass source access restrictions."""
 import argparse
@@ -18,6 +18,12 @@ import duckdb
 import pandas as pd
 import requests
 from finviz import parse_finviz_snapshot, parse_finviz_profile, is_fund_snapshot
+try:
+    from .priority import select_batch
+    from .alpha_vantage import enrich_caps
+except ImportError:
+    from priority import select_batch
+    from alpha_vantage import enrich_caps
 from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -254,7 +260,33 @@ def main():
         cursor_path = DATA / 'state' / 'cursor.json'
         cursor = 0
         rotate = bool(cfg.get('rotate_tickers', False))
-        if rotate and limit > 0 and total_active > limit:
+        priority_mode = cfg.get('collection_strategy') == 'market_cap_priority'
+        if priority_mode:
+            if cfg.get('alpha_vantage_enabled', True):
+                # Spend free calls only on unknown caps; do not repeatedly query
+                # companies with known FINVIZ or seed market capitalizations.
+                try:
+                    from priority import cap_lookup
+                except ImportError:
+                    from .priority import cap_lookup
+                cache_file = DATA / 'state' / 'alpha_market_caps.json'
+                known = cap_lookup(DATA / 'finviz' / 'snapshots.parquet',
+                    ROOT / cfg.get('market_cap_seed_csv', 'config/market_caps.csv'), cache_file)
+                unknown = [str(t) for t in active.ticker if str(t).upper() not in known]
+                enrich_caps(unknown, cache_file, DATA / 'state' / 'alpha_quota.json',
+                    daily_limit=int(cfg.get('alpha_vantage_daily_budget', 20)),
+                    timeout=int(cfg.get('timeout_seconds', 30)),
+                    delay=float(cfg.get('alpha_vantage_delay_seconds', 1)))
+            if limit <= 0:
+                raise SystemExit('Market-cap priority requires a positive batch size')
+            active, selection = select_batch(
+                active, DATA / 'finviz' / 'snapshots.parquet',
+                ROOT / cfg.get('market_cap_seed_csv', 'config/market_caps.csv'),
+                limit, int(cfg.get('refresh_after_hours', 24)),
+                DATA / 'state' / 'failed_tickers.json',
+                alpha_cache_path=DATA / 'state' / 'alpha_market_caps.json')
+            print(f"Priority selection: {selection}; unknown caps require a seed feed", flush=True)
+        elif rotate and limit > 0 and total_active > limit:
             if cursor_path.exists():
                 try:
                     cursor = int(json.loads(cursor_path.read_text()).get('next_offset', 0)) % total_active
@@ -395,12 +427,12 @@ def main():
         # The current batch was attempted. Advance the cursor so the next
         # scheduled run does not waste hours on the same successful tickers.
         # Failures are recorded in failed_tickers.json for explicit retry.
-        if rotate and limit > 0 and total_active > limit:
+        if not priority_mode and rotate and limit > 0 and total_active > limit:
             cursor_path.parent.mkdir(parents=True, exist_ok=True)
             cursor_path.write_text(json.dumps({'next_offset': (cursor + len(active)) % total_active,
                                                'universe_size': total_active,
                                                'updated_at': utc_now()}, indent=2) + '\n')
-        if not log or successes == 0 or errors:
+        if (not log and not priority_mode) or (successes == 0 and len(active) > 0 and skips == 0) or errors:
             print(f'Batch checkpoint saved; {errors} errors remain in retry queue.', flush=True)
             raise SystemExit(1)
         print(f'Quality gate passed: {successes} successful pages; {skips} expected skips; {errors} errors', flush=True)
