@@ -1,0 +1,6 @@
+# v4.1.0; SEC library used for Company Facts API
+sec-edgar-api>=1.1,<2
+# EdgarTools used for optional higher-level financial summary
+edgartools>=6,<7
+pymongo>=4.10,<5
+requests>=2.32,<3

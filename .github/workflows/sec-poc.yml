@@ -1,3 +1,4 @@
+# v4.0.3 - 2026-11-24 - UTC datetime fix, isolate v4 tests, retain legacy files
 name: SEC fundamentals POC
 on:
   workflow_dispatch:
@@ -17,6 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   collect:
+    name: Collect SEC Fundamentals
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -24,9 +26,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
-      - run: pip install -r requirements.txt
-      - run: python -m unittest discover -s tests -v
+      - name: Install SEC POC dependencies
+        run: python -m pip install -r requirements-sec-poc.txt
+      - name: Test SEC POC only
+        run: python -m unittest discover -s tests -p 'test_core.py' -v
       - name: Collect SEC facts
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
@@ -34,4 +37,7 @@ jobs:
           MONGODB_DATABASE: maketdata
           LIMIT: ${{ inputs.limit }}
           REFRESH_DAYS: ${{ inputs.refresh_days }}
-        run: python -m src.collect --limit "$LIMIT" --refresh-days "$REFRESH_DAYS"
+        run: |
+          test -n "$MONGODB_URI" || { echo '::error::MONGODB_URI is missing'; exit 1; }
+          test -n "$SEC_USER_AGENT" || { echo '::error::SEC_USER_AGENT is missing'; exit 1; }
+          python -m src.collect --limit "$LIMIT" --refresh-days "$REFRESH_DAYS"

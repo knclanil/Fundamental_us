@@ -1,31 +1,16 @@
-# MaketData v4.0.0 — MongoDB + SEC EDGAR proof of concept
+# MaketData SEC MongoDB POC v4.0.3
 
-Collect SEC company identities and historical Company Facts JSON into MongoDB Atlas, with durable checkpoints, idempotent upserts, retries, and safe pacing. **This is a 10-company proof of concept**, not a production-ready 4,900-stock platform. No price provider or calculated ratios yet.
+## Installation in existing repository
+Copy **all** included files into the repository root, keeping paths unchanged. In particular replace `src/collect.py`, `tests/test_core.py`, and `.github/workflows/sec-poc.yml`; add `requirements-sec-poc.txt`. Do not delete old `data/`, legacy tests or v3 workflows.
 
-## Setup
-1. Create a MongoDB Atlas cluster and database user. Obtain a `mongodb+srv://` connection string. Restrict network access as tightly as your runner setup allows; GitHub-hosted runners have changing egress IPs.
-2. Python 3.11+: `pip install -r requirements.txt`
-3. Set `MONGODB_URI`, `SEC_USER_AGENT` (real name/company and contact email; required by SEC), and optionally `MONGODB_DATABASE=maketdata`.
-4. `python -m src.collect --limit 10` (default); `python -m src.collect --limit 10 --refresh-days 7` for refresh.
-5. `python -m unittest discover -s tests -v`
+## GitHub secrets
+- `MONGODB_URI`: MongoDB Atlas database connection URI (do not commit it).
+- `SEC_USER_AGENT`: SEC-compliant app identity with real contact email.
 
-SEC APIs: `https://www.sec.gov/search-filings/edgar-application-programming-interfaces`. Respect SEC fair access; this code uses one request at a time and 0.25s minimum spacing. SEC JSON endpoints may be blocked in some environments; check errors and retry later.
+In Actions select **SEC fundamentals POC**, run with limit=10, refresh_days=7.
 
-## Storage
-- `companies`: one document per CIK, with ticker and name from SEC ticker list.
-- `company_facts_raw`: one document per CIK containing SEC Company Facts JSON and metadata; upserted on successful fetch.
-- `collection_state`: one document per CIK; records last success, failures, retry schedule.
-- `pipeline_runs`: run status and counts.
-
-Raw Company Facts can be large. MongoDB has a 16 MiB BSON document limit; oversized responses are rejected and logged. For a full-universe implementation, **split facts by concept / period** and store raw responses in object storage, with appropriate retention. This POC deliberately avoids silently truncating SEC facts.
-
-## GitHub Actions
-Add GitHub repository secrets `MONGODB_URI` and `SEC_USER_AGENT`. Manually run **SEC fundamentals POC** workflow. The scheduled workflow is intentionally disabled until the POC is validated. Never commit secrets.
-
-## Validation checklist
-Check counts in MongoDB, compare selected values to original SEC JSON and filings, test rerun idempotency, test transient failure and retry, verify timestamp/filing-date preservation, then expand in phases.
-
-## Changelog
-- 2026-11-24 v4.0.0: initial SEC Company Facts + MongoDB Atlas POC, persistent state, tests and manual workflow.
-
-Suggested commit: `feat: initialize MaketData v4 MongoDB SEC ingestion POC`
+## Design notes
+- Uses SEC official JSON APIs and PyMongo. This is the **existing v4.0 POC workflow**, not the separate v4.1 `SEC MongoDB v4` workflow.
+- Stores full SEC Company Facts response per company; larger issuers may exceed MongoDB 16MB document limit. Production migration should use concept/unit partitioning.
+- SEC ticker list is CIK sorted; this is a proof of concept, not a market-cap ranking.
+- MongoDB connectivity and live SEC requests require GitHub secrets and cannot be validated offline.

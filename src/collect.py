@@ -15,13 +15,25 @@ def ensure_indexes(db):
     db.collection_state.create_index([("next_retry_at", ASCENDING)])
     db.company_facts_raw.create_index([("fetched_at", ASCENDING)])
 
+def as_utc(value):
+    """PyMongo returns naive UTC datetimes by default; normalize before comparisons."""
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        raise TypeError(f"Expected datetime, received {type(value).__name__}")
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def due(state, now, refresh_days):
+    now = as_utc(now)
     if not state:
         return True
-    retry_at = state.get("next_retry_at")
+    retry_at = as_utc(state.get("next_retry_at"))
     if retry_at and retry_at > now:
         return False
-    last_success = state.get("last_success_at")
+    last_success = as_utc(state.get("last_success_at"))
     return not last_success or last_success <= now - timedelta(days=refresh_days)
 
 def run(db, sec, limit=10, refresh_days=7):
@@ -75,7 +87,7 @@ def main():
     if not uri:
         parser.error("MONGODB_URI environment variable is required")
     sec = SecClient(os.environ.get("SEC_USER_AGENT"))
-    client = MongoClient(uri, serverSelectionTimeoutMS=15000)
+    client = MongoClient(uri, tz_aware=True, serverSelectionTimeoutMS=15000)
     try:
         client.admin.command("ping")
         db = client[os.environ.get("MONGODB_DATABASE", "maketdata")]
