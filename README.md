@@ -40,3 +40,7 @@ The uploaded repository also contains historical pipelines in `src/`,
 These may still power separate features. No legacy files or data were deleted
 without proof of non-use. Disable obsolete workflows in GitHub only after
 confirming ownership and last run; avoid deleting any MongoDB collections.
+
+
+### v4.1.6 quarterly cash flow
+Q2 = 6-month YTD minus Q1; Q3 = 9-month YTD minus 6-month YTD; Q4 = annual minus 9-month YTD, where matching fiscal-year sources exist. Derived fields include `metric_sources.<metric>.method` and source components. Missing source periods remain missing. Q4 may contain only cash-flow metrics. Force-refresh the first 10 companies and validate individual filings before scaling. No existing MongoDB records are deleted.

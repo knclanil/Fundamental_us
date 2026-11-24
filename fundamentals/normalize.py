@@ -1,8 +1,4 @@
-"""v4.1.2: SEC Company Facts normalization using fiscal periods and filing provenance.
-
-Only direct-duration quarterly values are emitted; cumulative YTD values are not
-misrepresented as standalone quarters. Missing values remain missing.
-"""
+"""v4.1.6: SEC normalization with traceable standalone quarterly cash flows."""
 from datetime import date
 
 TAGS = {
@@ -34,6 +30,7 @@ def normalize(payload,years=5,today=None):
     if not isinstance(gaap,dict) or not isinstance(dei,dict):
         raise ValueError('Invalid SEC facts')
     rows={}
+    cumulative={}  # (metric, fiscal year, quarter): most recent eligible YTD observation
     for metric,tags in TAGS.items():
         for rank,tag in enumerate(tags):
             fact=gaap.get(tag) or (dei.get(tag) if metric=='shares' else None)
@@ -60,7 +57,21 @@ def normalize(payload,years=5,today=None):
                         start_date=date.fromisoformat(start)
                         days=(end-start_date).days+1
                         if is_annual and not 330<=days<=380:continue
-                        if is_quarter and not 70<=days<=110:continue
+                        if is_quarter and not 70<=days<=110:
+                            # Cash flow is generally reported year-to-date in 10-Q.
+                            # Retain it for a DIFFERENCE, never as standalone cash flow.
+                            if metric in ('operating_cash_flow','capex') and fp in ('Q2','Q3') and 140<=days<=300:
+                                expected={'Q2':(140,210),'Q3':(230,300)}[fp]
+                                if expected[0]<=days<=expected[1]:
+                                    ckey=(metric,fy,fp)
+                                    candidate=(filed.toordinal(),-rank,item['val'],{
+                                        'tag':tag,'filed':filed.isoformat(),'form':form,
+                                        'accession':item.get('accn'),'start':start,
+                                        'end':end.isoformat(),'fiscal_year':fy,'fiscal_period':fp
+                                    })
+                                    if candidate[:2]>(cumulative.get(ckey) or (-1,-999))[:2]:
+                                        cumulative[ckey]=candidate
+                            continue
                     kind='annual' if is_annual else 'quarterly'
                     label=f'FY{fy}' if is_annual else f'FY{fy}{fp}'
                     key=(kind,end.isoformat())
@@ -81,6 +92,62 @@ def normalize(payload,years=5,today=None):
                         }
                 except (KeyError,ValueError,TypeError,OverflowError):
                     continue
+    # A cumulative-only quarter may have no other reported standalone facts.
+    for (metric,fy,fp),entry in cumulative.items():
+        end=entry[3]['end']; key=('quarterly',end)
+        rows.setdefault(key,{'period':f'FY{fy}{fp}','fiscal_year':fy,'fiscal_period':fp,
+            'period_end':end,'period_type':'quarterly','metrics':{},
+            'metric_sources':{},'_priorities':{}})
+
+    # Derive standalone Q2/Q3 from matching YTD facts. Q1 is already a
+    # standalone three-month value. Q4 = FY - Q3 YTD, where both are present.
+    # Never subtract across different fiscal years or unrelated fiscal starts.
+    for row in rows.values():
+        if row['period_type']!='quarterly':continue
+        fp=row['fiscal_period']; fy=row['fiscal_year']
+        if fp not in ('Q2','Q3'):continue
+        for metric in ('operating_cash_flow','capex'):
+            if metric in row['metrics']:continue
+            current=cumulative.get((metric,fy,fp))
+            previous_fp='Q1' if fp=='Q2' else 'Q2'
+            previous=cumulative.get((metric,fy,previous_fp)) if fp=='Q3' else None
+            if fp=='Q2':
+                previous=next(( (None,None,r['metrics'][metric],r['metric_sources'][metric])
+                    for r in rows.values() if r['period_type']=='quarterly' and r['fiscal_year']==fy
+                    and r['fiscal_period']=='Q1' and metric in r['metrics']),None)
+            if not current or not previous:continue
+            src1,src0=current[3],previous[3]
+            if src1.get('start')!=src0.get('start') and fp=='Q3':continue
+            # Q2 cumulative start should match Q1 standalone start.
+            if fp=='Q2' and src1.get('start')!=src0.get('start'):continue
+            if not src1.get('end') or not src0.get('end') or src0['end']>=src1['end']:continue
+            row['metrics'][metric]=current[2]-previous[2]
+            row['metric_sources'][metric]={'method':'ytd_difference','current':src1,'previous':src0}
+
+    # Q4: only derive if annual and Q3 YTD observations are compatible.
+    for annual in [r for r in rows.values() if r['period_type']=='annual']:
+        fy=annual['fiscal_year']
+        q3=next((r for r in rows.values() if r['period_type']=='quarterly'
+                 and r['fiscal_year']==fy and r['fiscal_period']=='Q3'),None)
+        if not q3:continue
+        q4_metrics={}; q4_sources={}
+        for metric in ('operating_cash_flow','capex'):
+            full=annual['metric_sources'].get(metric)
+            ytd=cumulative.get((metric,fy,'Q3'))
+            if not full or not ytd or full.get('start')!=ytd[3].get('start'):continue
+            if not (ytd[3]['end']<annual['period_end']):continue
+            q4_metrics[metric]=annual['metrics'][metric]-ytd[2]
+            q4_sources[metric]={'method':'annual_minus_q3_ytd','annual':full,'q3_ytd':ytd[3]}
+        if q4_metrics:
+            # Do not manufacture a Q4 record containing only cash flows:
+            # Q4 period-end is known, but its other statement metrics are not.
+            key=('quarterly',annual['period_end'])
+            q4=rows.setdefault(key,{'period':f'FY{fy}Q4','fiscal_year':fy,'fiscal_period':'Q4',
+                  'period_end':annual['period_end'],'period_type':'quarterly',
+                  'metrics':{},'metric_sources':{},'_priorities':{}})
+            for metric,value in q4_metrics.items():
+                if metric not in q4['metrics']:
+                    q4['metrics'][metric]=value;q4['metric_sources'][metric]=q4_sources[metric]
     result=[]
     for row in rows.values():
         row.pop('_priorities')

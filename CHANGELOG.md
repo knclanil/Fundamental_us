@@ -1,3 +1,11 @@
+## v4.1.6 — Quarterly cash-flow normalization (2026-11-24)
+- Derive standalone Q2 and Q3 operating cash flow/capex by subtracting compatible fiscal-year-to-date values.
+- Derive Q4 cash flow/capex as annual minus Q3 YTD when both are available.
+- Mark derived metric provenance; compute free cash flow from standalone operating cash flow and capex.
+- Never treat cumulative YTD as standalone. Leave unavailable values missing.
+- Preserve all other repository files and MongoDB collections; no destructive migration.
+- Added focused regression tests. Live SEC/Atlas integration not performed locally.
+
 ## v4.1.5 — 2026-11-24
 - Add explicit force-refresh workflow input and CLI flag.
 - Bypass both success-age and retry-backoff gates when forced.

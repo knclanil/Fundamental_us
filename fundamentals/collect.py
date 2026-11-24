@@ -35,7 +35,7 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False):
     print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
     run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
-    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.5','force_refresh':force_refresh})
+    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.6','force_refresh':force_refresh})
     try:
         for company in companies[:limit]:
             counts['examined']+=1
