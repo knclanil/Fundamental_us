@@ -1,4 +1,4 @@
-# v3.1.2 - daily rotating batches and optional manual catch-up.
+# v3.1.3 - daily batches with durable commits even when a ticker fails.
 name: Collect market fundamentals
 on:
   workflow_dispatch:
@@ -47,14 +47,22 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for ((i=1; i<=BATCHES; i++)); do
             echo "::group::Batch $i/$BATCHES ($MARKET_MAX_TICKERS tickers)"
-            # Fail on genuine errors; save successful batches individually.
+            # Capture the exit code, but ALWAYS commit the successful records,
+            # retry queue and cursor before reporting a genuine failure.
+            set +e
             python -u src/pipeline.py
+            pipeline_status=$?
+            set -e
             git add data/
             if ! git diff --cached --quiet; then
-              git commit -m "data: refresh fundamentals batch $i/$BATCHES"
+              git commit -m "data: checkpoint fundamentals batch $i/$BATCHES"
               git push
             fi
             echo "::endgroup::"
+            if (( pipeline_status != 0 )); then
+              echo "::error::Pipeline encountered an unexpected error. Successful data and retry queue were committed."
+              exit "$pipeline_status"
+            fi
           done
       - name: Upload diagnostics
         if: always()

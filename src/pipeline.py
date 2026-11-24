@@ -1,5 +1,5 @@
-"""Market research ETL v3.1.2 (2026-11-23).
-Changelog: v3.1.2 workflow-controlled batch size; v3.1.1 security filtering, expected 404 skips, durable rotation; v3.1.0 rotation; v3.0.5 dtype fix.
+"""Market research ETL v3.1.3 (2026-11-24).
+Changelog: v3.1.3 ETF classification, recoverable error queue, durable failed-run commits; v3.1.2 workflow-controlled batch size; v3.1.1 security filtering, expected 404 skips, durable rotation; v3.1.0 rotation; v3.0.5 dtype fix.
 Does not bypass source access restrictions."""
 import argparse
 import hashlib
@@ -17,7 +17,7 @@ from urllib.robotparser import RobotFileParser
 import duckdb
 import pandas as pd
 import requests
-from finviz import parse_finviz_snapshot, parse_finviz_profile
+from finviz import parse_finviz_snapshot, parse_finviz_profile, is_fund_snapshot
 from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,13 +53,13 @@ def parse_exchange(text, symbol_col):
     if 'Test Issue' in df.columns:
         df = df[df['Test Issue'] != 'Y']
     if 'ETF' in df.columns:
-        df = df[df['ETF'] != 'Y']
+        df = df[df['ETF'].str.strip().str.upper() != 'Y']
     if 'Financial Status' in df.columns:
         df = df[df['Financial Status'] != 'D']
     if 'Security Name' not in df.columns:
         raise ValueError('Missing Security Name column')
     # These directories include non-common securities; exclude obvious types and flag remaining for review.
-    reject = r'\b(?:warrants?|rights?|units?|preferred|preference|depositary shares?|notes due|bonds?|debentures?|etns?|funds?|trusts?)\b'
+    reject = r'\b(?:warrants?|rights?|units?|preferred|preference|depositary shares?|notes due|bonds?|debentures?|etns?|funds?|trusts?|exchange.traded|index ETF|ETF|ETP)\b'
     df = df[~df['Security Name'].str.contains(reject, case=False, regex=True, na=False)]
     # NASDAQ directory: NextShares (N) and ETF (Y) are not operating-company common shares.
     if 'NextShares' in df.columns:
@@ -289,6 +289,11 @@ def main():
                 try:
                     html = fetch(session, finviz_url, cfg['request_delay_seconds'], cfg['timeout_seconds'])
                     now = utc_now()
+                    if is_fund_snapshot(html):
+                        print(f'[SKIP] {ticker} | finviz | ETF/fund snapshot (not common stock)', flush=True)
+                        log.append({'ticker': ticker, 'page': 'finviz', 'status': 'skipped',
+                                    'detail': 'ETF/fund snapshot (not common stock)', 'at': now})
+                        continue
                     rows = parse_finviz_snapshot(html, ticker, now)
                     print(f'[OK] {ticker} | finviz | {len(rows)} metrics extracted', flush=True)
                     required = set(cfg.get('finviz_required_metrics', ['Price', 'Market Cap', 'Volume']))
@@ -367,13 +372,37 @@ def main():
         successes = sum(x['status'] == 'ok' for x in log)
         skips = sum(x['status'] == 'skipped' for x in log)
         print(f'Pages successful: {successes}; unsupported skips: {skips}; unexpected failures: {errors}', flush=True)
-        if not log or successes == 0 or errors:
-            raise SystemExit(1)
+        # Persist a durable retry queue even if the job ultimately fails.
+        retry_path = DATA / 'state' / 'failed_tickers.json'
+        retry_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            retry_state = json.loads(retry_path.read_text()) if retry_path.exists() else {}
+            if not isinstance(retry_state, dict):
+                retry_state = {}
+        except (OSError, ValueError, TypeError):
+            retry_state = {}
+        for entry in log:
+            key = f"{entry['ticker']}|{entry['page']}"
+            if entry['status'] == 'error':
+                retry_state[key] = {'ticker': entry['ticker'], 'page': entry['page'],
+                                    'detail': entry['detail'], 'last_failed_at': entry['at']}
+            elif entry['status'] == 'ok':
+                retry_state.pop(key, None)
+            elif entry['status'] == 'skipped':
+                retry_state.pop(key, None)
+        retry_path.write_text(json.dumps(retry_state, indent=2, sort_keys=True) + '\n')
+        print(f'Retry queue entries: {len(retry_state)}', flush=True)
+        # The current batch was attempted. Advance the cursor so the next
+        # scheduled run does not waste hours on the same successful tickers.
+        # Failures are recorded in failed_tickers.json for explicit retry.
         if rotate and limit > 0 and total_active > limit:
             cursor_path.parent.mkdir(parents=True, exist_ok=True)
             cursor_path.write_text(json.dumps({'next_offset': (cursor + len(active)) % total_active,
                                                'universe_size': total_active,
                                                'updated_at': utc_now()}, indent=2) + '\n')
+        if not log or successes == 0 or errors:
+            print(f'Batch checkpoint saved; {errors} errors remain in retry queue.', flush=True)
+            raise SystemExit(1)
         print(f'Quality gate passed: {successes} successful pages; {skips} expected skips; {errors} errors', flush=True)
 
     finally:

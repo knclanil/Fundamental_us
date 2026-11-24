@@ -49,3 +49,13 @@ To catch up faster, open **Actions → Collect market fundamentals → Run workf
 **Limitation:** A failed batch may have written local data but won't push it; the last successful checkpoint remains intact. The next run retries from the last committed cursor. The workflow does not provide per-ticker retry queues or automatic 429 backoff. Full-universe daily refresh would require a separately authorized, higher-throughput data source.
 
 **Suggested commit:** `feat(pipeline): v3.1.2 automate daily batches and checkpointed backfill`
+
+## v3.1.3 — ETF classification and failure-safe checkpoints (2026-11-24)
+
+- Excludes ETFs when exchange symbol-directory ETF flags are available and excludes explicit ETF/ETP descriptions.
+- Recognizes fund-specific FINVIZ snapshot layouts (e.g. GRN: AUM, Expense, ETF Type) and records a **skip**, not a stock parser error. Other unrecognized pages remain errors.
+- Persists `data/state/failed_tickers.json` for unexpected failures. A later successful result removes that ticker/page from the queue. **Automatic retry of queued entries is not yet implemented**; retry those tickers explicitly after investigation.
+- Advances rotation after a completed attempted batch, even if an individual ticker fails, and records failures for later retry.
+- GitHub Actions now commits all `data/` changes **before** failing the job for unexpected errors. A failure in the Git push itself still prevents persistence; inspect the workflow logs.
+- Keeps the 03:15 UTC daily schedule and manual multi-batch workflow. Do not exceed provider-authorized request volumes.
+- **Preserve your current working `config/settings.json`** when deploying. The ZIP contains automated collection disabled by default.

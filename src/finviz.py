@@ -1,5 +1,6 @@
-"""FINVIZ snapshot parser v3.0.4 (2026-11-23).
+"""FINVIZ snapshot parser v3.1.3 (2026-11-24).
 Changelog:
+- v3.1.3: Detect ETF/fund metric layouts before applying stock-only quality gates.
 - v3.0.4: Parse all metric/value pairs in each row, including wrapped cells;
   reject partial captures by checking required labels; preserve raw values.
 - v3.0.0: Initial snapshot parser.
@@ -26,6 +27,23 @@ def _row_cells(tr):
     if len(nested) > len(direct) and len(nested) % 2 == 0:
         return nested
     return direct
+
+
+def is_fund_snapshot(html):
+    """Recognize the fund/ETF-specific FINVIZ snapshot schema, not ticker suffixes.
+
+    Requiring multiple fund-specific labels avoids classifying an ordinary
+    stock as a fund merely because its name contains the word 'fund'.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    labels = set()
+    for table in soup.select("table.snapshot-table2, table[class*='snapshot-table']"):
+        for tr in table.select("tr"):
+            cells = _row_cells(tr)
+            for i in range(0, len(cells) - 1, 2):
+                labels.add(_text(cells[i]).casefold())
+    fund_markers = {"aum", "expense", "etf type", "asset type", "active/passive", "bond type", "commodity type"}
+    return len(labels & fund_markers) >= 2 and ("aum" in labels or "etf type" in labels)
 
 
 def parse_finviz_snapshot(html, ticker, observed_at):
