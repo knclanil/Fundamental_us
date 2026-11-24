@@ -1,4 +1,4 @@
-name: Large-cap fundamentals v4.1
+name: S&P 500 fundamentals v4.1.1
 on:
   workflow_dispatch:
     inputs:
@@ -34,7 +34,7 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_largecap.py' -v
       - name: Collect large caps
         env:
-          LIMIT: ${{ github.event.inputs.limit || '100' }}
+          LIMIT: ${{ github.event.inputs.limit || '10' }}
           REFRESH_DAYS: ${{ github.event.inputs.refresh_days || '7' }}
         run: |
           test -n "$MONGODB_URI" && test -n "$SEC_USER_AGENT"

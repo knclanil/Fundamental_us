@@ -1,33 +1,32 @@
-# MaketData v4.1.0 — US large-cap fundamentals
+# MaketData v4.1.1 — S&P 500 Fundamentals (Free-tier POC)
 
-**Scope:** US-listed common stocks with market capitalization >= $10 billion; SEC financial facts, 5-year window, MongoDB Atlas free tier. Daily OHLCV and technical analysis are intentionally out of scope.
+## What changed
+Nasdaq screener was unreliable in GitHub Actions. This release discovers the **S&P 500 constituents** from Wikipedia, joins tickers to SEC CIKs, and collects five years of normalized annual and quarterly fundamentals into MongoDB Atlas.
 
-## Installation (additive, safe)
+**Important:** S&P 500 membership is NOT the same as market capitalization >= $10 billion. This release is an S&P 500 proxy, not the previously proposed complete US large-cap universe. Market caps are not supplied by this feed.
 
-Copy `fundamentals/`, `tests/test_largecap.py`, `requirements-largecap.txt`, and `.github/workflows/largecap-fundamentals.yml` into the root of your existing MaketData repository. **Do not overwrite** the working `src/` code or `.github/workflows/sec-poc.yml`. Commit the new files. Set existing `MONGODB_URI` and `SEC_USER_AGENT` repository secrets. Run **Actions → Large-cap fundamentals v4.1 → Run workflow**, with `limit=10` initially.
+If the live constituent table cannot be read, the workflow explicitly logs a warning and uses a checked-in **30-ticker partial bootstrap** for a limited proof of concept. This is NOT a full S&P 500 list. No scraping of Nasdaq is attempted.
 
-## Behavior and caveats
+## Install into existing repository
+Copy `fundamentals/`, `data/sp500_bootstrap.csv`, `tests/test_largecap.py`, `requirements-largecap.txt`, and `.github/workflows/largecap-fundamentals.yml` into your existing MaketData repository. Preserve the working v4.0.3 SEC POC and all existing data. You may merge this README rather than overwrite your existing README.
 
-- The free Nasdaq screener endpoint is **unofficial/undocumented** and may block GitHub Actions or change its response. The collector fails rather than silently falling back to an incorrect large-cap list. Market caps are point-in-time snapshots, not SEC facts.
-- SEC CIK matching uses the SEC public ticker list. Some eligible securities cannot be mapped; these are skipped. This is not a complete proof of US domicile or common-share class. Validate issuer domicile and security type before treating the universe as exhaustive.
-- Financial values use SEC XBRL `CY...` frames to avoid mixing annual, discrete-quarter and year-to-date figures. Companies without these tags/frames can be incomplete. Bank/insurer-specific line items are not covered. Financial data are *not audited by this pipeline*.
-- A five-year date window can include six calendar-year labels near a year boundary. Quarterly reporting periods may be fewer than 20.
-- Financial collection refreshes 7 days after last success; weekly scheduled runs process the top 100 eligible companies by market cap by default. To cover more, run manually with a larger limit; consider Actions runtime and SEC rate limits. A `limit` counts companies examined, including skipped companies.
-- Existing `company_facts_raw` documents remain untouched. **Do not delete them** until you validate normalized records and back them up. New data goes into `financial_annual` and `financial_quarterly`.
-- Only `financial_annual`/`financial_quarterly` records for successfully refreshed companies are pruned. A failed fetch preserves previously stored financials.
-- GitHub Actions and MongoDB free tiers have quotas and may change; $0 is a target, not a guarantee. Monitor Atlas usage.
+## Secrets
+GitHub Actions secrets: `MONGODB_URI` and `SEC_USER_AGENT` (valid contact email). Database defaults to `maketdata`.
 
-## MongoDB inspection
+## Run
+Actions > **S&P 500 fundamentals v4.1.1** > Run workflow, limit=10, refresh_days=7. Logs show the universe source and a collection summary. Increase the limit only after validating MongoDB data and storage.
 
-Data Explorer → `maketdata` → `financial_annual` or `financial_quarterly`; filter `{"ticker":"AAPL"}`. View `pipeline_runs` for run counts. The new pipeline uses `largecap_collection_state` to avoid skipping companies because of old raw-data collection state.
+## MongoDB collections
+`companies`, `financial_annual`, `financial_quarterly`, `largecap_collection_state`, `pipeline_runs`. Existing `company_facts_raw` is untouched.
 
-## Test locally
+## Cost and correctness cautions
+- Free Atlas M0 storage is limited. Monitor usage; no paid upgrade is automatic.
+- SEC XBRL concepts differ by company. The normalizer extracts a common subset and does not guarantee every statement metric.
+- A five-year period filter is applied to new records; older v4.1 records are not automatically deleted, to avoid accidental loss on incomplete SEC responses.
+- Annual and quarterly periods depend on available SEC `frame` values; some fiscal-year records may be absent.
+- The script's `--min-market-cap` option is retained for CLI compatibility but **does not filter** S&P 500 membership by market cap.
+- SEC downloads respect a minimum request interval and bounded retries.
+- The universe feed can fail; fallback is explicitly partial, and no empty list is silently treated as success.
 
-```bash
-python -m pip install -r requirements-largecap.txt
-python -m unittest discover -s tests -p test_largecap.py -v
-```
-
-## Important
-
-This is an additive release. Keep the old SEC POC workflow disabled on schedule (or manual only) to avoid further raw fact growth. The new workflow does not write raw SEC payloads.
+## Validate locally
+`pip install -r requirements-largecap.txt` then `python -m unittest discover -s tests -p 'test_largecap.py' -v`.

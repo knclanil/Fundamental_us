@@ -1,10 +1,19 @@
 import unittest
 from datetime import date,datetime,timedelta,timezone
 from fundamentals.normalize import normalize
-from fundamentals.universe import parse_cap,join_sec
+from fundamentals.universe import parse_cap,join_sec,parse_wikipedia,fetch_large_caps
 from fundamentals.collect import aware,due
 
 class LargeCapTests(unittest.TestCase):
+    def test_reject_short_html(self):
+        with self.assertRaises(ValueError): parse_wikipedia('<html><body>Blocked</body></html>')
+    def test_bootstrap_fallback(self):
+        from unittest.mock import Mock
+        session=Mock()
+        session.get.side_effect=__import__('requests').ConnectionError('blocked')
+        rows=fetch_large_caps(session=session)
+        self.assertGreaterEqual(len(rows),10)
+        self.assertEqual(rows[0]['universe_source'],'bootstrap_partial')
     def test_cap(self):
         self.assertEqual(parse_cap('$12.5B'),12_500_000_000)
         self.assertEqual(parse_cap('10000000000'),10_000_000_000)

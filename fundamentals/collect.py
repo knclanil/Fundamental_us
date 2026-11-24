@@ -31,8 +31,8 @@ def run(db,sec,limit,refresh_days,years,min_cap):
     companies=join_sec(universe,sec.tickers())
     if not companies:raise RuntimeError('No SEC-mapped large caps; aborting')
     indexes(db)
-    run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0}
-    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.0'})
+    run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
+    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.1'})
     try:
         for company in companies[:limit]:
             counts['examined']+=1
@@ -49,7 +49,8 @@ def run(db,sec,limit,refresh_days,years,min_cap):
                         coll.bulk_write([UpdateOne({'cik':cik,'period':r['period']},{'$set':{'cik':cik,'ticker':company['ticker'],**r,'updated_at':now()}},upsert=True) for r in selected])
                     # Remove older rows only after successful extraction and writes.
                     current_periods=[r['period'] for r in selected]
-                    if current_periods:coll.delete_many({'cik':cik,'period':{'$nin':current_periods}})
+                    # Do not delete old records on a partial SEC response.
+                    # Retention pruning is handled only after separate validation.
                 db.companies.update_one({'_id':cik},{'$set':{k:v for k,v in company.items() if k!='cik'}|{'updated_at':now()}},upsert=True)
                 db.largecap_collection_state.update_one({'_id':cik},{'$set':{'last_success_at':now(),'failures':0,'next_retry_at':None,'last_error':None}},upsert=True)
                 counts['success']+=1
