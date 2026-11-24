@@ -13,7 +13,8 @@ def now(): return datetime.now(timezone.utc)
 def aware(value):
     if value is None:return None
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
-def due(state,refresh_days):
+def due(state,refresh_days,force_refresh=False):
+    if force_refresh:return True
     if not state:return True
     retry=aware(state.get('next_retry_at'))
     if retry and retry>now():return False
@@ -25,20 +26,21 @@ def indexes(db):
     # Unique financial indexes are built only after safe archival migration.
     db.largecap_collection_state.create_index('last_success_at')
 
-def run(db,sec,limit,refresh_days,years,min_cap):
+def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False):
     if limit<1 or refresh_days<0 or years<1 or min_cap<=0:raise ValueError('Invalid arguments')
+    print(f'RUN_CONFIG limit={limit} refresh_days={refresh_days} force_refresh={force_refresh} years={years}',flush=True)
     universe=fetch_large_caps(min_cap)
     companies=join_sec(universe,sec.tickers())
     if not companies:raise RuntimeError('No SEC-mapped large caps; aborting')
     print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
     run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
-    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.4'})
+    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.5','force_refresh':force_refresh})
     try:
         for company in companies[:limit]:
             counts['examined']+=1
             cik=company['cik']; state=db.largecap_collection_state.find_one({'_id':cik})
-            if not due(state,refresh_days):counts['skipped']+=1;continue
+            if not due(state,refresh_days,force_refresh=force_refresh):counts['skipped']+=1;continue
             try:
                 payload=sec.company_facts(cik)
                 if int(payload.get('cik',-1))!=cik or not isinstance(payload.get('facts'),dict):raise ValueError('Invalid SEC payload')
@@ -48,6 +50,7 @@ def run(db,sec,limit,refresh_days,years,min_cap):
                 if len(keys)!=len(set(keys)):
                     raise ValueError('Normalizer produced duplicate financial period identities')
                 if not rows:raise ValueError('No normalized SEC financial periods; preserving previous data')
+                if not any(r['period_type']=='annual' for r in rows):raise ValueError('No annual financial periods; preserving previous data')
                 for kind,coll in (('annual',db.financial_annual),('quarterly',db.financial_quarterly)):
                     selected=[r for r in rows if r['period_type']==kind]
                     if selected:
@@ -75,6 +78,7 @@ def run(db,sec,limit,refresh_days,years,min_cap):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--limit',type=int,default=10)
+    p.add_argument('--force-refresh',action='store_true',help='Bypass both successful-refresh and failure-retry cooldowns')
     p.add_argument('--refresh-days',type=int,default=7)
     p.add_argument('--years',type=int,default=5)
     p.add_argument('--min-market-cap',type=float,default=10_000_000_000)
@@ -84,7 +88,7 @@ def main():
     sec=SecClient(os.environ.get('SEC_USER_AGENT'))
     with MongoClient(uri,tz_aware=True,serverSelectionTimeoutMS=15000) as client:
         client.admin.command('ping')
-        result=run(client[os.environ.get('MONGODB_DATABASE','maketdata')],sec,args.limit,args.refresh_days,args.years,args.min_market_cap)
+        result=run(client[os.environ.get('MONGODB_DATABASE','maketdata')],sec,args.limit,args.refresh_days,args.years,args.min_market_cap,force_refresh=args.force_refresh)
         print('COLLECTION_SUMMARY',result,flush=True)
         if result['failed']:raise SystemExit(1)
 if __name__=='__main__':main()

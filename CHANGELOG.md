@@ -1,3 +1,10 @@
+## v4.1.5 — 2026-11-24
+- Add explicit force-refresh workflow input and CLI flag.
+- Bypass both success-age and retry-backoff gates when forced.
+- Log effective runtime configuration; add six regression tests.
+- Run migration index and refresh tests in GitHub Actions.
+- Document non-destructive repository cleanup inventory.
+
 # Changelog
 
 ## v4.1.4 — 2026-11-24
