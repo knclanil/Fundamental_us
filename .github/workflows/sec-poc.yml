@@ -1,4 +1,13 @@
+# MaketData v4.0.1
+# Changelog:
+# 2026-11-24 v4.0.1:
+# - Isolated SEC v4.0 tests from legacy v3.x tests.
+# - Preserved MongoDB Atlas integration.
+# - Preserved manual collection inputs.
+# - No changes to existing v3.x workflows.
+
 name: SEC fundamentals POC
+
 on:
   workflow_dispatch:
     inputs:
@@ -6,27 +15,70 @@ on:
         description: "Number of companies to examine"
         required: true
         default: "10"
+
       refresh_days:
         description: "Refresh interval in days"
         required: true
         default: "7"
+
 permissions:
   contents: read
+
 concurrency:
   group: maketdata-sec-poc
   cancel-in-progress: false
+
 jobs:
   collect:
+    name: Collect SEC Fundamentals
     runs-on: ubuntu-latest
     timeout-minutes: 25
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # Step 1: Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Setup Python
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install -r requirements.txt
-      - run: python -m unittest discover -s tests -v
+
+      # Step 3: Install dependencies
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Step 4: Run only v4.0 tests
+      - name: Run SEC v4.0 tests
+        run: |
+          python -m unittest discover \
+            -s tests \
+            -p "test_core.py" \
+            -v
+
+      # Step 5: Validate required secrets
+      - name: Validate configuration
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: |
+          if [ -z "$MONGODB_URI" ]; then
+            echo "::error::MONGODB_URI secret is missing"
+            exit 1
+          fi
+
+          if [ -z "$SEC_USER_AGENT" ]; then
+            echo "::error::SEC_USER_AGENT secret is missing"
+            exit 1
+          fi
+
+          echo "Required configuration is present."
+
+      # Step 6: Collect SEC financial data
       - name: Collect SEC facts
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
@@ -34,4 +86,18 @@ jobs:
           MONGODB_DATABASE: maketdata
           LIMIT: ${{ inputs.limit }}
           REFRESH_DAYS: ${{ inputs.refresh_days }}
-        run: python -m src.collect --limit "$LIMIT" --refresh-days "$REFRESH_DAYS"
+
+        run: |
+          python -m src.collect \
+            --limit "$LIMIT" \
+            --refresh-days "$REFRESH_DAYS"
+
+      # Step 7: Workflow summary
+      - name: Collection summary
+        if: success()
+        run: |
+          echo "## MaketData v4.0.1" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "SEC fundamentals collection completed." >> "$GITHUB_STEP_SUMMARY"
+          echo "Database: MongoDB Atlas" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source: SEC EDGAR" >> "$GITHUB_STEP_SUMMARY"
