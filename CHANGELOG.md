@@ -33,3 +33,11 @@ Suggested commit: `fix(v4.1.4): reconcile legacy unique indexes and harden SEC c
 - Replace financial documents on successful refresh so invalid stale cash-flow metrics and provenance are removed (rather than retained by `$set`).
 - Add three regression tests for comparative-year mismatch, correct current-year Q3, and mismatched fiscal starts.
 - No MongoDB collections are dropped; force-refresh is needed to repair previously saved documents.
+
+## v4.1.8 — 2026-11-24
+- Infer fiscal quarters and fiscal years from actual reporting end dates and the latest verified 10-K annual reporting calendar.
+- Reject prior-year balance-sheet snapshots in 10-Q filings when they coincide with fiscal year-end; retain legitimate annual 10-K snapshots.
+- Preserve original SEC filing fy/fp as `filing_fy`/`filing_fp` in metric provenance.
+- Archive and remove legacy Q1-Q3 quarterly documents at verified annual period ends after successful refresh.
+- Add calendar-year, August-year-end, and comparative-filing regression tests.
+- Limitation: material fiscal-year-end changes and unusual 52/53-week calendars require additional review.

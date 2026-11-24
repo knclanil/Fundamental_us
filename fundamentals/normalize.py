@@ -1,5 +1,6 @@
 """v4.1.7: SEC normalization with reporting-date-anchored quarterly cash flows."""
-from datetime import date
+from datetime import date, timedelta
+import calendar
 
 TAGS = {
     'revenue': ['RevenueFromContractWithCustomerExcludingAssessedTax','Revenues','SalesRevenueNet','RevenueFromContractWithCustomerIncludingAssessedTax'],
@@ -20,6 +21,81 @@ UNITS={'eps_basic':'USD/shares','eps_diluted':'USD/shares','shares':'shares'}
 INSTANT={'assets','liabilities','equity','cash','current_assets','current_liabilities','long_term_debt','short_term_debt','shares'}
 FORMS={'10-K','10-K/A','10-Q','10-Q/A'}
 
+def _shift_months(day, months):
+    index = day.year * 12 + day.month - 1 + months
+    year, month = divmod(index, 12)
+    month += 1
+    return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
+
+
+def _fiscal_calendar(gaap, today):
+    """Infer fiscal year ends from actual annual-duration 10-K facts, not SEC fy/fp.
+
+    A historical 10-Q comparative snapshot is never a fiscal-quarter anchor.
+    """
+    ends = []
+    for tag in ('Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax',
+                'NetIncomeLoss', 'OperatingIncomeLoss'):
+        for obs in (gaap.get(tag) or {}).get('units', {}).get('USD', []):
+            try:
+                end = date.fromisoformat(obs['end'])
+                start = date.fromisoformat(obs['start'])
+                filed = date.fromisoformat(obs['filed'])
+                if (obs.get('form') in ('10-K', '10-K/A') and
+                        330 <= (end-start).days+1 <= 380 and filed <= today and end <= today):
+                    ends.append(end)
+            except (ValueError, TypeError, KeyError):
+                continue
+    if not ends:
+        # A Q1 3-month duration is a safe fiscal calendar anchor when no
+        # annual duration is available in a synthetic or sparse payload.
+        for tag in ('Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax',
+                    'NetIncomeLoss', 'OperatingIncomeLoss'):
+            for obs in (gaap.get(tag) or {}).get('units', {}).get('USD', []):
+                try:
+                    start=date.fromisoformat(obs['start']); end=date.fromisoformat(obs['end'])
+                    if (obs.get('form') in ('10-Q','10-Q/A') and
+                        obs.get('fp')=='Q1' and 70 <= (end-start).days+1 <= 110):
+                        ends.append(_shift_months(end,9))
+                except (KeyError,ValueError,TypeError):continue
+    if not ends:
+        # A verified three-month Q3 income statement anchors the year end.
+        for tag in ('Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax',
+                    'NetIncomeLoss', 'OperatingIncomeLoss'):
+            for obs in (gaap.get(tag) or {}).get('units', {}).get('USD', []):
+                try:
+                    start=date.fromisoformat(obs['start']); end=date.fromisoformat(obs['end'])
+                    if (obs.get('form') in ('10-Q','10-Q/A') and
+                        obs.get('fp')=='Q3' and 70 <= (end-start).days+1 <= 110):
+                        ends.append(_shift_months(end,3))
+                except (KeyError,ValueError,TypeError):continue
+    if not ends:
+        return None
+    # Use the most recent annual end to establish the company's fiscal calendar.
+    return max(ends)
+
+
+def _actual_period(end, annual_anchor):
+    """Return (FY, fiscal quarter), based on real period end and fiscal calendar.
+
+    Allow small drift in quarter ends for 52/53-week reporting companies.
+    """
+    candidates = []
+    for year in range(end.year-2, end.year+3):
+        try:
+            fy_end = annual_anchor.replace(year=year)
+        except ValueError:
+            fy_end = date(year, 2, 28)
+        for quarter in range(1, 5):
+            target = _shift_months(fy_end, -3 * (4-quarter))
+            distance = abs((end-target).days)
+            if distance <= 9:
+                candidates.append((distance, year, quarter))
+    if not candidates:
+        return None
+    _, year, quarter = min(candidates)
+    return year, quarter
+
 def normalize(payload,years=5,today=None):
     if years < 1: raise ValueError('years must be positive')
     today=today or date.today()
@@ -29,6 +105,7 @@ def normalize(payload,years=5,today=None):
     dei=facts.get('dei') or {}
     if not isinstance(gaap,dict) or not isinstance(dei,dict):
         raise ValueError('Invalid SEC facts')
+    annual_anchor=_fiscal_calendar(gaap,today)
     rows={}
     cumulative={}  # (metric, actual YTD end date): latest eligible SEC YTD observation
     for metric,tags in TAGS.items():
@@ -41,14 +118,20 @@ def normalize(payload,years=5,today=None):
                     filed=date.fromisoformat(item['filed'])
                     form=item.get('form','')
                     if not cutoff<=end<=today or filed>today or form not in FORMS:continue
-                    fy=int(item['fy'])
-                    fp=str(item['fp']).upper()
+                    filing_fy=int(item['fy'])
+                    filing_fp=str(item['fp']).upper()
+                    actual=_actual_period(end,annual_anchor) if annual_anchor else None
+                    if not actual:continue
+                    fy,quarter=actual
+                    fp='FY' if quarter==4 and form.startswith('10-K') else f'Q{quarter}'
                     if fp not in ('FY','Q1','Q2','Q3','Q4'):continue
-                    is_annual=form.startswith('10-K') and fp=='FY'
-                    is_quarter=form.startswith('10-Q') and fp in ('Q1','Q2','Q3')
+                    is_annual=form.startswith('10-K') and quarter==4
+                    is_quarter=form.startswith('10-Q') and quarter in (1,2,3)
                     # SEC 10-K annual and 10-Q quarterly. A Q4 standalone value
                     # must be explicitly derived and validated; do not fabricate it.
                     if not (is_annual or is_quarter):continue
+                    # A 10-Q can repeat last year's year-end balance sheet.
+                    # Its actual end date maps to Q4, so it is rejected above.
                     start=item.get('start')
                     if metric in INSTANT:
                         if start:continue
@@ -67,7 +150,7 @@ def normalize(payload,years=5,today=None):
                                     candidate=(filed.toordinal(),-rank,item['val'],{
                                         'tag':tag,'filed':filed.isoformat(),'form':form,
                                         'accession':item.get('accn'),'start':start,
-                                        'end':end.isoformat(),'fiscal_year':fy,'fiscal_period':fp
+                                        'end':end.isoformat(),'fiscal_year':fy,'fiscal_period':fp,'filing_fy':filing_fy,'filing_fp':filing_fp
                                     })
                                     if candidate[:2]>(cumulative.get(ckey) or (-1,-999))[:2]:
                                         cumulative[ckey]=candidate
@@ -88,7 +171,7 @@ def normalize(payload,years=5,today=None):
                             'tag':tag,'filed':filed.isoformat(),'form':form,
                             'accession':item.get('accn'),
                             'start':start,'end':end.isoformat(),
-                            'fiscal_year':fy,'fiscal_period':fp
+                            'fiscal_year':fy,'fiscal_period':fp,'filing_fy':filing_fy,'filing_fp':filing_fp
                         }
                 except (KeyError,ValueError,TypeError,OverflowError):
                     continue

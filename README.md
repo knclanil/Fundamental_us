@@ -47,3 +47,10 @@ Q2 = 6-month YTD minus Q1; Q3 = 9-month YTD minus 6-month YTD; Q4 = annual minus
 
 ### v4.1.7 period-integrity repair
 Run the `S&P 500 fundamentals v4.1.7` workflow with `limit=10`, `force_refresh=true`, `refresh_days=0` to overwrite the ten previously refreshed financial records. The collector now replaces each successfully normalized financial document, removing previously stored incorrect cash-flow fields when the SEC source cannot be validated. Check `MMM / FY2026Q3`: any derived cash-flow source must have `current.end=2026-09-30` and `previous.end=2026-06-30`. If valid source observations are unavailable, those fields should be absent, **not zero**. No remote database has been modified by this package.
+
+### v4.1.8 fiscal calendar repair
+Run the `S&P 500 fundamentals v4.1.8` workflow with `limit=10`, `force_refresh=true`, `refresh_days=0`. The normalizer now uses actual SEC fact dates and a company fiscal-year calendar inferred from annual 10-K income statement observations. It no longer trusts `fy`/`fp` from a filing to label every comparative fact.
+
+**Existing data repair:** On a successful company refresh, misclassified Q1–Q3 records whose end dates coincide with verified annual records are copied into `financial_period_archive` before removal. Existing legitimate Q4 records are preserved. No MongoDB collections are dropped. Verify AOS no longer has `FY2022Q1` with `period_end=2021-12-31`; verify `FY2021` annual record and `FY2022Q3` quarter. Backup Atlas before running. This is a targeted repair, not a full historical reconciliation of all potentially mislabeled records.
+
+**Limitations:** An annual fiscal-calendar anchor is required; sparse SEC fact payloads may omit some periods. Fiscal year-end changes, nonstandard fiscal quarters, and 52/53-week companies need manual validation. No live SEC or Atlas integration tests were performed.

@@ -35,7 +35,7 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False):
     print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
     run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
-    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.7','force_refresh':force_refresh})
+    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.8','force_refresh':force_refresh})
     try:
         for company in companies[:limit]:
             counts['examined']+=1
@@ -59,6 +59,17 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False):
                     current_periods=[r['period_end'] for r in selected]
                     # Do not delete old records on a partial SEC response.
                     # Retention pruning is handled only after separate validation.
+                # Safely quarantine legacy quarterly snapshots wrongly labeled Q1-Q3
+                # at a verified annual fiscal year-end. Never delete legitimate Q4.
+                annual_ends={r['period_end'] for r in rows if r['period_type']=='annual'}
+                for old in db.financial_quarterly.find({'cik':cik,'period_end':{'$in':list(annual_ends)}}):
+                    if old.get('fiscal_period') not in ('Q1','Q2','Q3'):continue
+                    archive=dict(old)
+                    archive['_id']=f"fiscal418:{cik}:{old['_id']}"
+                    archive['archived_at']=now()
+                    archive['archive_reason']='quarterly_label_at_verified_annual_year_end'
+                    db.financial_period_archive.replace_one({'_id':archive['_id']},archive,upsert=True)
+                    db.financial_quarterly.delete_one({'_id':old['_id'],'cik':cik})
                 db.companies.update_one({'_id':cik},{'$set':{k:v for k,v in company.items() if k!='cik'}|{'updated_at':now()}},upsert=True)
                 db.largecap_collection_state.update_one({'_id':cik},{'$set':{'last_success_at':now(),'failures':0,'next_retry_at':None,'last_error':None}},upsert=True)
                 counts['success']+=1
