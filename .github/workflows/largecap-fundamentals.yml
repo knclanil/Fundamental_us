@@ -1,4 +1,4 @@
-name: S&P 500 fundamentals v4.1.1
+name: S&P 500 fundamentals v4.1.2
 on:
   workflow_dispatch:
     inputs:

@@ -21,8 +21,8 @@ def due(state,refresh_days):
 
 def indexes(db):
     db.companies.create_index('ticker')
-    db.financial_annual.create_index([('cik',ASCENDING),('period',ASCENDING)],unique=True)
-    db.financial_quarterly.create_index([('cik',ASCENDING),('period',ASCENDING)],unique=True)
+    db.financial_annual.create_index([('cik',ASCENDING),('period_end',ASCENDING)],unique=True)
+    db.financial_quarterly.create_index([('cik',ASCENDING),('period_end',ASCENDING)],unique=True)
     db.largecap_collection_state.create_index('last_success_at')
 
 def run(db,sec,limit,refresh_days,years,min_cap):
@@ -32,7 +32,7 @@ def run(db,sec,limit,refresh_days,years,min_cap):
     if not companies:raise RuntimeError('No SEC-mapped large caps; aborting')
     indexes(db)
     run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
-    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.1'})
+    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.2'})
     try:
         for company in companies[:limit]:
             counts['examined']+=1
@@ -46,9 +46,9 @@ def run(db,sec,limit,refresh_days,years,min_cap):
                 for kind,coll in (('annual',db.financial_annual),('quarterly',db.financial_quarterly)):
                     selected=[r for r in rows if r['period_type']==kind]
                     if selected:
-                        coll.bulk_write([UpdateOne({'cik':cik,'period':r['period']},{'$set':{'cik':cik,'ticker':company['ticker'],**r,'updated_at':now()}},upsert=True) for r in selected])
+                        coll.bulk_write([UpdateOne({'cik':cik,'period_end':r['period_end']},{'$set':{'cik':cik,'ticker':company['ticker'],**r,'updated_at':now()}},upsert=True) for r in selected])
                     # Remove older rows only after successful extraction and writes.
-                    current_periods=[r['period'] for r in selected]
+                    current_periods=[r['period_end'] for r in selected]
                     # Do not delete old records on a partial SEC response.
                     # Retention pruning is handled only after separate validation.
                 db.companies.update_one({'_id':cik},{'$set':{k:v for k,v in company.items() if k!='cik'}|{'updated_at':now()}},upsert=True)
