@@ -1,0 +1,218 @@
+{
+  "AGM.A": {
+    "last_skipped_at": "2026-11-24T20:03:17.497383+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "AKO.A": {
+    "last_skipped_at": "2026-11-24T20:03:22.527846+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "AKO.B": {
+    "last_skipped_at": "2026-11-24T20:03:27.556784+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "AQNB": {
+    "last_skipped_at": "2026-11-24T20:03:32.583947+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BEPH": {
+    "last_skipped_at": "2026-11-24T20:03:37.611618+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BEPI": {
+    "last_skipped_at": "2026-11-24T20:03:42.639301+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BEPJ": {
+    "last_skipped_at": "2026-11-24T20:03:47.666574+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BF.A": {
+    "last_skipped_at": "2026-11-24T20:03:52.695782+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BF.B": {
+    "last_skipped_at": "2026-11-24T20:03:57.721625+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BH.A": {
+    "last_skipped_at": "2026-11-24T20:04:02.748149+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BIO.B": {
+    "last_skipped_at": "2026-11-24T20:04:07.774341+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BIPI": {
+    "last_skipped_at": "2026-11-24T20:04:12.803324+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BNJ": {
+    "last_skipped_at": "2026-11-24T20:04:17.831846+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BRK.A": {
+    "last_skipped_at": "2026-11-24T20:04:22.860727+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "BRK.B": {
+    "last_skipped_at": "2026-11-24T20:04:27.891160+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "CCZ": {
+    "last_skipped_at": "2026-11-24T20:04:32.919588+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "CIG.C": {
+    "last_skipped_at": "2026-11-24T20:04:37.946946+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "CRD.A": {
+    "last_skipped_at": "2026-11-24T20:04:42.974300+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "CRD.B": {
+    "last_skipped_at": "2026-11-24T20:04:48.005138+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "DCBG": {
+    "last_skipped_at": "2026-11-24T20:04:53.031847+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "DGICB": {
+    "last_skipped_at": "2026-11-24T20:04:58.057842+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "EFTY": {
+    "last_skipped_at": "2026-11-24T20:05:03.084426+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "GEF.B": {
+    "last_skipped_at": "2026-11-24T20:05:08.111377+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "GJH": {
+    "last_skipped_at": "2026-11-24T20:05:13.139861+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "GTN.A": {
+    "last_skipped_at": "2026-11-24T20:05:18.167214+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "HCHL": {
+    "last_skipped_at": "2026-11-24T20:05:23.195650+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "HEI.A": {
+    "last_skipped_at": "2026-11-24T20:05:28.223727+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "HVT.A": {
+    "last_skipped_at": "2026-11-24T20:05:33.255678+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "JBK": {
+    "last_skipped_at": "2026-11-24T20:05:38.286902+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "KELYB": {
+    "last_skipped_at": "2026-11-24T20:05:43.313644+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "LBTYB": {
+    "last_skipped_at": "2026-11-24T20:05:48.339839+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "LEN.B": {
+    "last_skipped_at": "2026-11-24T20:05:53.369878+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "METCB": {
+    "last_skipped_at": "2026-11-24T20:05:58.399972+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "MKC.V": {
+    "last_skipped_at": "2026-11-24T20:06:03.427095+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "MOG.A": {
+    "last_skipped_at": "2026-11-24T20:06:08.455460+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "MOG.B": {
+    "last_skipped_at": "2026-11-24T20:06:13.482326+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "OST": {
+    "last_skipped_at": "2026-11-24T20:06:18.508072+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "PC": {
+    "last_skipped_at": "2026-11-24T20:06:23.535545+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "PSNYW": {
+    "last_skipped_at": "2026-11-24T20:06:28.562268+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "PYT": {
+    "last_skipped_at": "2026-11-24T20:06:33.589519+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "RDIB": {
+    "last_skipped_at": "2026-11-24T20:06:38.618189+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "RUSHB": {
+    "last_skipped_at": "2026-11-24T20:06:43.645910+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "SENEB": {
+    "last_skipped_at": "2026-11-24T20:06:48.707023+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "SVA": {
+    "last_skipped_at": "2026-11-24T20:06:53.733302+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "TAP.A": {
+    "last_skipped_at": "2026-11-24T20:06:58.761880+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "TJGC": {
+    "last_skipped_at": "2026-11-24T20:07:03.788397+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "TOPP": {
+    "last_skipped_at": "2026-11-24T20:07:08.814246+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "TVC": {
+    "last_skipped_at": "2026-11-24T20:07:13.841061+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "TVE": {
+    "last_skipped_at": "2026-11-24T20:07:18.869405+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "UHAL.B": {
+    "last_skipped_at": "2026-11-24T20:07:23.896804+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "UONEK": {
+    "last_skipped_at": "2026-11-24T20:07:28.923701+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "WLYB": {
+    "last_skipped_at": "2026-11-24T20:07:33.952638+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "WSO.B": {
+    "last_skipped_at": "2026-11-24T20:07:38.988950+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  },
+  "XELLL": {
+    "last_skipped_at": "2026-11-24T20:07:44.017668+00:00",
+    "reason": "HTTP 404: symbol not available at provider"
+  }
+}
