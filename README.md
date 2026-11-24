@@ -44,3 +44,6 @@ confirming ownership and last run; avoid deleting any MongoDB collections.
 
 ### v4.1.6 quarterly cash flow
 Q2 = 6-month YTD minus Q1; Q3 = 9-month YTD minus 6-month YTD; Q4 = annual minus 9-month YTD, where matching fiscal-year sources exist. Derived fields include `metric_sources.<metric>.method` and source components. Missing source periods remain missing. Q4 may contain only cash-flow metrics. Force-refresh the first 10 companies and validate individual filings before scaling. No existing MongoDB records are deleted.
+
+### v4.1.7 period-integrity repair
+Run the `S&P 500 fundamentals v4.1.7` workflow with `limit=10`, `force_refresh=true`, `refresh_days=0` to overwrite the ten previously refreshed financial records. The collector now replaces each successfully normalized financial document, removing previously stored incorrect cash-flow fields when the SEC source cannot be validated. Check `MMM / FY2026Q3`: any derived cash-flow source must have `current.end=2026-09-30` and `previous.end=2026-06-30`. If valid source observations are unavailable, those fields should be absent, **not zero**. No remote database has been modified by this package.

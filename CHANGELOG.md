@@ -25,3 +25,11 @@
 - Added non-destructive repository cleanup guidance.
 
 Suggested commit: `fix(v4.1.4): reconcile legacy unique indexes and harden SEC collection`
+
+## v4.1.7 — 2026-11-24
+- Anchor Q2/Q3 cash-flow YTD inputs to actual quarter reporting end dates, not SEC filing `fy`/`fp` labels.
+- Require a corresponding income-statement quarter and a matching prior quarter to prevent comparative prior-year cash flow from contaminating current-year records.
+- Require matching fiscal-year starts and exact previous/current period ends.
+- Replace financial documents on successful refresh so invalid stale cash-flow metrics and provenance are removed (rather than retained by `$set`).
+- Add three regression tests for comparative-year mismatch, correct current-year Q3, and mismatched fiscal starts.
+- No MongoDB collections are dropped; force-refresh is needed to repair previously saved documents.

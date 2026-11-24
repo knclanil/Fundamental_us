@@ -1,4 +1,4 @@
-name: S&P 500 fundamentals v4.1.6
+name: S&P 500 fundamentals v4.1.7
 on:
   workflow_dispatch:
     inputs:
@@ -39,6 +39,7 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_largecap.py' -v
       - run: python -m unittest discover -s tests -p 'test_migration_indexes.py' -v
       - run: python -m unittest discover -s tests -p 'test_refresh.py' -v
+      - run: python -m unittest discover -s tests -p 'test_period_integrity_v417.py' -v
       - name: Collect large caps
         env:
           LIMIT: ${{ github.event.inputs.limit || '10' }}

@@ -11,7 +11,7 @@ def test_ytd_and_q4_cashflows():
              fact('2026-01-01','2026-12-31',2026,'FY','10-K',620)]
     payload={'facts':{'us-gaap':{'NetCashProvidedByUsedInOperatingActivities':{'units':{'USD':entries}},
             'PaymentsToAcquirePropertyPlantAndEquipment':{'units':{'USD':[{**x,'val':v} for x,v in zip(entries,[20,45,75,110])]}},
-            'Revenues':{'units':{'USD':[fact('2026-01-01','2026-12-31',2026,'FY','10-K',1000)]}}}}}
+            'Revenues':{'units':{'USD':[fact('2026-01-01','2026-03-31',2026,'Q1','10-Q',100),fact('2026-04-01','2026-06-30',2026,'Q2','10-Q',200),fact('2026-07-01','2026-09-30',2026,'Q3','10-Q',300),fact('2026-01-01','2026-12-31',2026,'FY','10-K',1000)]}}}}}
     rows=normalize(payload,years=5,today=date(2026,12,31))
     q={r['fiscal_period']:r for r in rows if r['period_type']=='quarterly'}
     assert [q[k]['metrics']['operating_cash_flow'] for k in ('Q1','Q2','Q3','Q4')]==[100,150,180,190]

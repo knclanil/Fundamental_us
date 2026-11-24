@@ -3,7 +3,7 @@ import argparse
 import os
 from datetime import datetime,timedelta,timezone
 from uuid import uuid4
-from pymongo import MongoClient,UpdateOne,ASCENDING
+from pymongo import MongoClient,UpdateOne,ReplaceOne,ASCENDING
 from .sec_client import SecClient
 from .universe import fetch_large_caps,join_sec
 from .normalize import normalize
@@ -35,7 +35,7 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False):
     print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
     run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
-    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.6','force_refresh':force_refresh})
+    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.7','force_refresh':force_refresh})
     try:
         for company in companies[:limit]:
             counts['examined']+=1
@@ -54,7 +54,7 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False):
                 for kind,coll in (('annual',db.financial_annual),('quarterly',db.financial_quarterly)):
                     selected=[r for r in rows if r['period_type']==kind]
                     if selected:
-                        coll.bulk_write([UpdateOne({'cik':cik,'period_end':r['period_end']},{'$set':{'cik':cik,'ticker':company['ticker'],**r,'updated_at':now()}},upsert=True) for r in selected], ordered=True)
+                        coll.bulk_write([ReplaceOne({'cik':cik,'period_end':r['period_end']},{'cik':cik,'ticker':company['ticker'],**r,'updated_at':now()},upsert=True) for r in selected], ordered=True)
                     # Remove older rows only after successful extraction and writes.
                     current_periods=[r['period_end'] for r in selected]
                     # Do not delete old records on a partial SEC response.
