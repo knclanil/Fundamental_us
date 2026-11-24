@@ -44,3 +44,10 @@ Suggested commit: `feat(pipeline): v3.2.0 market-cap priority, incremental selec
 - Existing `config/settings.json` in your repo is user-specific: merge the new three `alpha_vantage_*` settings; do not overwrite your working provider permissions.
 
 Suggested commit: `feat(pipeline): v3.2.1 add free-tier Alpha Vantage cap enrichment and quota cache`
+
+## v3.2.2 — GitHub Actions configuration fix (2026-11-24)
+
+- `config/settings.json` sets `allow_automated_collection: true` at the user's request. **Only run automated collection where source terms/permissions allow it.**
+- Workflow checks that `ALPHA_VANTAGE_API_KEY` exists before extraction and reports an actionable error without exposing the key. GitHub secrets **cannot** be created or included in a ZIP; add it in repository Settings > Secrets and variables > Actions.
+- Existing collection, checkpoint, artifact backup and Git push retry logic retained.
+- Preserve the repository's `data/` directory and merge configuration changes if your live settings differ.

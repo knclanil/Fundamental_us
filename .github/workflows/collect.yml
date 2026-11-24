@@ -1,4 +1,4 @@
-# v3.1.3 - daily batches with durable commits even when a ticker fails.
+# v3.2.2 - enabled collection, Alpha Vantage secret preflight, backup and safe push.
 name: Collect market fundamentals
 on:
   workflow_dispatch:
@@ -36,6 +36,17 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
+      - name: Verify Alpha Vantage secret configuration
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+        env:
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+        shell: bash
+        run: |
+          if [[ -z "${ALPHA_VANTAGE_API_KEY:-}" ]]; then
+            echo "::error::ALPHA_VANTAGE_API_KEY is missing. Add it under Settings > Secrets and variables > Actions > Repository secrets."
+            exit 1
+          fi
+          echo "Alpha Vantage API key is configured (value hidden)."
       - name: Collect and checkpoint each batch
         env:
           MARKET_MAX_TICKERS: ${{ github.event.inputs.batch_size || '100' }}
