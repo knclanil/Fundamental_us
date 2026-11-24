@@ -1,4 +1,4 @@
-"""Market research ETL v3.2.1 (2026-11-24).
+"""Market research ETL v3.2.3 (2026-11-24).
 Changelog: v3.1.3 ETF classification, recoverable error queue, durable failed-run commits; v3.1.2 workflow-controlled batch size; v3.1.1 security filtering, expected 404 skips, durable rotation; v3.1.0 rotation; v3.0.5 dtype fix.
 Does not bypass source access restrictions."""
 import argparse
@@ -262,6 +262,28 @@ def main():
         rotate = bool(cfg.get('rotate_tickers', False))
         priority_mode = cfg.get('collection_strategy') == 'market_cap_priority'
         if priority_mode:
+            # Recover previously skipped FINVIZ symbols from the durable execution log.
+            # Existing installations do not need to reset their Parquet history.
+            skip_path = DATA / 'state' / 'finviz_unsupported.json'
+            try:
+                skip_state = json.loads(skip_path.read_text()) if skip_path.exists() else {}
+                if not isinstance(skip_state, dict):
+                    skip_state = {}
+            except (OSError, ValueError, TypeError):
+                skip_state = {}
+            old_log = load_existing(DATA / 'execution_log.parquet')
+            if not old_log.empty and {'ticker','page','status','detail','at'}.issubset(old_log.columns):
+                old_log = old_log.sort_values('at')
+                for _, entry in old_log.iterrows():
+                    t = str(entry['ticker']).upper()
+                    if entry['page'] != 'finviz':
+                        continue
+                    if entry['status'] == 'ok':
+                        skip_state.pop(t, None)
+                    elif entry['status'] == 'skipped' and ('404' in str(entry['detail']) or 'ETF/fund' in str(entry['detail'])):
+                        skip_state[t] = {'reason': str(entry['detail']), 'last_skipped_at': str(entry['at'])}
+            skip_path.parent.mkdir(parents=True, exist_ok=True)
+            skip_path.write_text(json.dumps(skip_state, indent=2, sort_keys=True) + '\n')
             if cfg.get('alpha_vantage_enabled', True):
                 # Spend free calls only on unknown caps; do not repeatedly query
                 # companies with known FINVIZ or seed market capitalizations.
@@ -272,7 +294,7 @@ def main():
                 cache_file = DATA / 'state' / 'alpha_market_caps.json'
                 known = cap_lookup(DATA / 'finviz' / 'snapshots.parquet',
                     ROOT / cfg.get('market_cap_seed_csv', 'config/market_caps.csv'), cache_file)
-                unknown = [str(t) for t in active.ticker if str(t).upper() not in known]
+                unknown = [str(t) for t in active.ticker if str(t).upper() not in known and str(t).upper() not in skip_state]
                 enrich_caps(unknown, cache_file, DATA / 'state' / 'alpha_quota.json',
                     daily_limit=int(cfg.get('alpha_vantage_daily_budget', 20)),
                     timeout=int(cfg.get('timeout_seconds', 30)),
@@ -282,9 +304,10 @@ def main():
             active, selection = select_batch(
                 active, DATA / 'finviz' / 'snapshots.parquet',
                 ROOT / cfg.get('market_cap_seed_csv', 'config/market_caps.csv'),
-                limit, int(cfg.get('refresh_after_hours', 24)),
+                min(total_active, limit * int(cfg.get('max_attempts_per_success', 3))), int(cfg.get('refresh_after_hours', 24)),
                 DATA / 'state' / 'failed_tickers.json',
-                alpha_cache_path=DATA / 'state' / 'alpha_market_caps.json')
+                alpha_cache_path=DATA / 'state' / 'alpha_market_caps.json',
+                skip_path=skip_path, skip_days=int(cfg.get('unsupported_retry_days', 30)))
             print(f"Priority selection: {selection}; unknown caps require a seed feed", flush=True)
         elif rotate and limit > 0 and total_active > limit:
             if cursor_path.exists():
@@ -298,7 +321,12 @@ def main():
             active = active.head(limit)
         print(f'Universe size: {total_active}; selected: {len(active)}; rotation offset: {cursor}', flush=True)
         log = []
+        attempted_tickers = 0
+        successful_tickers = 0
         for _, item in active.iterrows():
+            if priority_mode and successful_tickers >= limit:
+                break
+            attempted_tickers += 1
             ticker = item['ticker']
             base = BASE.format(symbol_slug(ticker))
             if cfg.get('collect_stockanalysis', True):
@@ -351,6 +379,7 @@ def main():
                             if profile[key] and key in instruments:
                                 instruments.loc[mask, key] = profile[key]
                         write_parquet(instruments, DATA / 'dimensions/instruments.parquet')
+                    successful_tickers += 1
                     log.append({'ticker': ticker, 'page': 'finviz', 'status': 'ok',
                                 'detail': str(count), 'at': now})
                 except requests.HTTPError as exc:
@@ -400,7 +429,7 @@ def main():
         combined = pd.concat([existing, pd.DataFrame(log)], ignore_index=True)
         write_parquet(combined, log_path)
         errors = sum(x['status'] == 'error' for x in log)
-        print(f'Processed {len(active)} tickers; {errors} page failures')
+        print(f'Processed {attempted_tickers} tickers; {errors} page failures')
         successes = sum(x['status'] == 'ok' for x in log)
         skips = sum(x['status'] == 'skipped' for x in log)
         print(f'Pages successful: {successes}; unsupported skips: {skips}; unexpected failures: {errors}', flush=True)
@@ -424,6 +453,17 @@ def main():
                 retry_state.pop(key, None)
         retry_path.write_text(json.dumps(retry_state, indent=2, sort_keys=True) + '\n')
         print(f'Retry queue entries: {len(retry_state)}', flush=True)
+        if priority_mode:
+            for entry in log:
+                if entry['page'] != 'finviz':
+                    continue
+                t = str(entry['ticker']).upper()
+                if entry['status'] == 'ok':
+                    skip_state.pop(t, None)
+                elif entry['status'] == 'skipped' and ('404' in entry['detail'] or 'ETF/fund' in entry['detail']):
+                    skip_state[t] = {'reason': entry['detail'], 'last_skipped_at': entry['at']}
+            skip_path.write_text(json.dumps(skip_state, indent=2, sort_keys=True) + '\n')
+            print(f'FINVIZ unsupported cooldown entries: {len(skip_state)}; successful tickers: {successful_tickers}/{limit}', flush=True)
         # The current batch was attempted. Advance the cursor so the next
         # scheduled run does not waste hours on the same successful tickers.
         # Failures are recorded in failed_tickers.json for explicit retry.
@@ -432,7 +472,7 @@ def main():
             cursor_path.write_text(json.dumps({'next_offset': (cursor + len(active)) % total_active,
                                                'universe_size': total_active,
                                                'updated_at': utc_now()}, indent=2) + '\n')
-        if (not log and not priority_mode) or (successes == 0 and len(active) > 0 and skips == 0) or errors:
+        if (not log and not priority_mode) or (priority_mode and successes == 0 and attempted_tickers > 0) or (successes == 0 and attempted_tickers > 0 and skips == 0) or errors:
             print(f'Batch checkpoint saved; {errors} errors remain in retry queue.', flush=True)
             raise SystemExit(1)
         print(f'Quality gate passed: {successes} successful pages; {skips} expected skips; {errors} errors', flush=True)

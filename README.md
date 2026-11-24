@@ -51,3 +51,13 @@ Suggested commit: `feat(pipeline): v3.2.1 add free-tier Alpha Vantage cap enrich
 - Workflow checks that `ALPHA_VANTAGE_API_KEY` exists before extraction and reports an actionable error without exposing the key. GitHub secrets **cannot** be created or included in a ZIP; add it in repository Settings > Secrets and variables > Actions.
 - Existing collection, checkpoint, artifact backup and Git push retry logic retained.
 - Preserve the repository's `data/` directory and merge configuration changes if your live settings differ.
+
+## v3.2.3 — Smart ticker selection and 404 recovery (2026-11-24)
+- Reconstruct FINVIZ unsupported ticker history from existing `data/execution_log.parquet` on first run; no historical data deletion or reset.
+- Persist `data/state/finviz_unsupported.json`, with a configurable 30-day cooldown for provider HTTP 404 and fund-snapshot skips. This is provider-specific, not a delisting judgment.
+- Exclude cooldown tickers from both market-cap selection and Alpha Vantage discovery.
+- Market-cap value `0` is treated as unknown, not a valid known capitalization.
+- Select up to `max_attempts_per_success` (default 3) candidate tickers per desired success; stop once target successes are achieved. A batch can return fewer successes if the candidate pool or attempt budget is exhausted.
+- Report attempted vs successful ticker counts; zero-success attempted priority batches now fail rather than silently passing. Artifacts and local data checkpoint remain available on failure.
+- No speculative dot-to-hyphen FINVIZ symbol rewrites are made; provider mappings must be verified before enabling them.
+- Existing settings and `data/` should be preserved when deploying; merge new settings rather than overwrite customized values.

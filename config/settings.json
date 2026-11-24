@@ -27,5 +27,7 @@
   "refresh_after_hours": 24,
   "alpha_vantage_enabled": true,
   "alpha_vantage_daily_budget": 20,
-  "alpha_vantage_delay_seconds": 1
+  "alpha_vantage_delay_seconds": 1,
+  "max_attempts_per_success": 3,
+  "unsupported_retry_days": 30
 }

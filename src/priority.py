@@ -21,7 +21,7 @@ def parse_cap(raw):
     if not m:
         return None
     n = float(m.group(1)) * {'':1, 'K':1e3, 'M':1e6, 'B':1e9, 'T':1e12}[m.group(2)]
-    return n if n >= 0 else None
+    return n if n > 0 else None
 
 def cap_group(cap):
     if cap is None or pd.isna(cap):
@@ -71,16 +71,33 @@ def latest_successes(snapshot_path):
     df = df.assign(_date=dates).dropna(subset=['_date'])
     return df.groupby('ticker')['_date'].max().to_dict()
 
-def select_batch(universe, snapshot_path, seed_path, batch_size, refresh_hours=24, retry_path=None, now=None, alpha_cache_path=None):
+def select_batch(universe, snapshot_path, seed_path, batch_size, refresh_hours=24, retry_path=None, now=None, alpha_cache_path=None, skip_path=None, skip_days=30):
     now = now or datetime.now(timezone.utc)
     caps = cap_lookup(snapshot_path, seed_path, alpha_cache_path)
     success = latest_successes(snapshot_path)
     retry = {}
     if retry_path and Path(retry_path).exists():
         retry = json.loads(Path(retry_path).read_text())
+    skips = {}
+    if skip_path and Path(skip_path).exists():
+        try:
+            skips = json.loads(Path(skip_path).read_text())
+        except (OSError, ValueError, TypeError):
+            skips = {}
     pending = []
+    cooldown_count = 0
     for _, row in universe.iterrows():
         t = str(row.ticker).upper()
+        record = skips.get(t, {})
+        try:
+            skipped_at = datetime.fromisoformat(record['last_skipped_at'].replace('Z', '+00:00'))
+            if skipped_at.tzinfo is None:
+                skipped_at = skipped_at.replace(tzinfo=timezone.utc)
+            if now - skipped_at < timedelta(days=skip_days):
+                cooldown_count += 1
+                continue
+        except (KeyError, TypeError, ValueError, AttributeError):
+            pass
         last = success.get(t)
         # Exclude recently collected; never assume an uncollected ticker's cap.
         if last is not None and now - last.to_pydatetime() < timedelta(hours=refresh_hours):
@@ -97,4 +114,4 @@ def select_batch(universe, snapshot_path, seed_path, batch_size, refresh_hours=2
     indexed = universe.set_index('ticker')
     return indexed.loc[selected].reset_index(), {'eligible': len(pending),
         'known_caps': sum(t in caps for t in universe.ticker),
-        'selected': len(selected), 'unknown_caps': sum(t not in caps for t in universe.ticker)}
+        'selected': len(selected), 'unknown_caps': sum(t not in caps for t in universe.ticker), 'skipped_cooldown': cooldown_count}
