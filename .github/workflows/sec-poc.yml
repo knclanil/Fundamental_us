@@ -1,0 +1,37 @@
+name: SEC fundamentals POC
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Number of companies to examine"
+        required: true
+        default: "10"
+      refresh_days:
+        description: "Refresh interval in days"
+        required: true
+        default: "7"
+permissions:
+  contents: read
+concurrency:
+  group: maketdata-sec-poc
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - name: Collect SEC facts
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          MONGODB_DATABASE: maketdata
+          LIMIT: ${{ inputs.limit }}
+          REFRESH_DAYS: ${{ inputs.refresh_days }}
+        run: python -m src.collect --limit "$LIMIT" --refresh-days "$REFRESH_DAYS"
