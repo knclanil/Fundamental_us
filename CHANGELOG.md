@@ -1,8 +1,12 @@
 # Changelog
 
-## v4.1.3 — 2026-11-24
-- Added idempotent duplicate-period migration before unique index creation.
-- Archived original duplicate documents in `financial_duplicate_archive` before deletion.
-- Merged nonconflicting metric fields into the preferred document; conflicting values remain in archived originals.
-- Added migration summary and unit tests. Existing SEC collection, fiscal normalizer and five-year scope retained.
-- **Caveat:** records sharing a period end but representing genuinely different reporting durations require future schema refinement; archived originals are retained for audit.
+## v4.1.4 — 2026-11-24
+- Fixed E11000 caused by conflicting unique `(cik, period)` and `(cik, period_end)` indexes.
+- Index migration now creates the replacement before dropping the precisely matched obsolete index.
+- Fail-closed checks for unexpected unique indexes and ambiguous duplicate identities.
+- Archive all versions of reconciled duplicates before mutation; no automatic collection deletion.
+- Added regression tests for index replacement ordering and rollback-on-failure behavior.
+- Retained SEC fiscal-year, balance-sheet, filing-source, and quarterly normalization changes.
+- Added non-destructive repository cleanup guidance.
+
+Suggested commit: `fix(v4.1.4): reconcile legacy unique indexes and harden SEC collection`

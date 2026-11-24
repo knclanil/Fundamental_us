@@ -33,7 +33,7 @@ def run(db,sec,limit,refresh_days,years,min_cap):
     print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
     run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
-    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.3'})
+    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.4'})
     try:
         for company in companies[:limit]:
             counts['examined']+=1
@@ -43,11 +43,15 @@ def run(db,sec,limit,refresh_days,years,min_cap):
                 payload=sec.company_facts(cik)
                 if int(payload.get('cik',-1))!=cik or not isinstance(payload.get('facts'),dict):raise ValueError('Invalid SEC payload')
                 rows=normalize(payload,years=years)
+                # Never write two operations for the same database identity.
+                keys=[(r['period_type'],r['period_end']) for r in rows]
+                if len(keys)!=len(set(keys)):
+                    raise ValueError('Normalizer produced duplicate financial period identities')
                 if not rows:raise ValueError('No normalized SEC financial periods; preserving previous data')
                 for kind,coll in (('annual',db.financial_annual),('quarterly',db.financial_quarterly)):
                     selected=[r for r in rows if r['period_type']==kind]
                     if selected:
-                        coll.bulk_write([UpdateOne({'cik':cik,'period_end':r['period_end']},{'$set':{'cik':cik,'ticker':company['ticker'],**r,'updated_at':now()}},upsert=True) for r in selected])
+                        coll.bulk_write([UpdateOne({'cik':cik,'period_end':r['period_end']},{'$set':{'cik':cik,'ticker':company['ticker'],**r,'updated_at':now()}},upsert=True) for r in selected], ordered=True)
                     # Remove older rows only after successful extraction and writes.
                     current_periods=[r['period_end'] for r in selected]
                     # Do not delete old records on a partial SEC response.

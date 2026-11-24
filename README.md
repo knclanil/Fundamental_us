@@ -1,20 +1,26 @@
-# MaketData v4.1.3 — S&P 500 Fundamentals
+# MaketData — S&P 500 fundamentals v4.1.4
 
-This is a drop-in update of v4.1.2, fixing the `E11000 duplicate key` failure when adding a unique index to pre-existing financial collections.
+SEC Company Facts → normalized annual/quarterly fundamentals → MongoDB Atlas.
 
-## Installation
-Copy the package contents into your existing MaketData repository, retaining the relative paths. Do not delete existing MongoDB collections. Commit and run **S&P 500 fundamentals v4.1.3** with `limit=10`, `refresh_days=0` to force a refresh of the first ten tickers.
+## Deployment (additive, no data wipe)
 
-## Migration safety
-On startup, the pipeline groups existing records by `(cik, period_end)` in `financial_annual` and `financial_quarterly`. For duplicate groups it picks the record with the most populated metrics as the canonical record, merges missing metric fields, archives **each removed original document** in `financial_duplicate_archive`, verifies the archive copy exists, and only then removes the extra originals. Conflicting values are retained in the archived documents. It creates the unique indexes after the duplicate groups have been reconciled. The migration is designed to be safe to rerun.
+1. Back up the MongoDB database before first migration. **Do not drop any collections.**
+2. Copy the ZIP's files into the existing repository preserving directory paths. Do not delete unrelated existing files/workflows.
+3. Keep existing `MONGODB_URI` and `SEC_USER_AGENT` GitHub Actions secrets.
+4. Run **S&P 500 fundamentals v4.1.4** manually with `limit=10`, `refresh_days=0`.
+5. Check `MIGRATION_SUMMARY` and `COLLECTION_SUMMARY`. Confirm 10 successes and zero failures before raising the limit.
+6. Check annual and quarterly documents for MMM and ACN; confirm fiscal labels, balance metrics, provenance, and uniqueness.
 
-**Important:** This migration intentionally consolidates documents with the same CIK and end date. If records represent different durations or fiscal contexts, their originals remain in the archive, but a later schema update should use a more expressive period identity. It does not independently validate the accuracy of the SEC normalization.
+## Index migration behavior
 
-## Secrets
-`MONGODB_URI` and `SEC_USER_AGENT` in GitHub Actions; `MONGODB_DATABASE` defaults to `maketdata`.
+v4.1.3 used a unique `(cik, period_end)` index but left the old unique `(cik, period)` index in place. Both were enforced and SEC updates failed with E11000. v4.1.4 archives and consolidates true same-end duplicates (if any), creates/verifies the new index, and **then** drops only the exact obsolete unique `(cik, period)` index. Unexpected unique indexes fail closed. No automatic age-based deletion. Archived versions are retained in `financial_duplicate_archive`.
 
-## Validate
-Inspect the `MIGRATION_SUMMARY` and `COLLECTION_SUMMARY` logs, then verify `financial_annual`, `financial_quarterly`, and `financial_duplicate_archive` in MongoDB Atlas. Do not delete the archive until you have audited it. The archive temporarily uses additional free-tier storage.
+## Repo cleanup — safe, review-only
 
-## Suggested commit
-`fix(v4.1.3): archive and reconcile duplicate financial periods before indexing`
+**Keep:** `fundamentals/`, `tests/`, `data/sp500_bootstrap.csv`, `requirements-largecap.txt`, `.github/workflows/largecap-fundamentals.yml`, and existing unrelated pipelines until audited.
+
+**Review before removing:** superseded largecap workflow copies, unused historical POC code, old sample exports, and duplicate documentation. Do not delete legacy collections or workflows without confirming they are unused. The ZIP contains the canonical active S&P 500 pipeline only, not a destructive cleanup script.
+
+## Limits
+
+Tests are local/unit-only; a live Atlas + SEC integration test is still required. Fiscal attribution in SEC Company Facts can vary by issuer and filing; validate source accession and period metadata for representative companies before bulk rollout. The five-year window is applied to newly normalized rows; existing older records are not deleted.
