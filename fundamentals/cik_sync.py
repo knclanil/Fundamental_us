@@ -1,4 +1,4 @@
-"""SEC ticker/CIK synchronization. v4.3.2.2 (2026-11-25).
+"""SEC ticker/CIK synchronization. v4.3.2.3 (2026-11-25).
 
 Dry-run by default. SEC's ticker file is a mapping, not proof of current
 S&P 500 membership, active filing status, or issuer continuity.
@@ -13,6 +13,9 @@ LEGACY = {'ACU', 'ADX', 'AEMRF', 'AIR', 'AKZOY', 'BKTI'}
 # Identity guard: the SEC ticker list can occasionally map a familiar symbol
 # to an unexpected entity. Do not silently reassign a known parent issuer.
 EXPECTED_ISSUERS = {'XOM': ('0000034088', 'EXXON MOBIL')}
+# SEC ticker feed currently maps XOM to a different entity. This explicit
+# issuer override is for the parent company's consolidated SEC filings.
+CIK_OVERRIDES = {'XOM': {'cik': '0000034088', 'sec_name': 'Exxon Mobil Corporation'}}
 
 def normalize_ticker(ticker):
     return str(ticker or '').strip().upper().replace('.', '-')
@@ -34,6 +37,20 @@ def sec_map(sec):
         mapping[ticker] = {'cik': cik10(row['cik_str']), 'sec_name': str(row['title']).strip()}
     return mapping
 
+def resolve_issuer(ticker, match):
+    """Return trusted issuer mapping; preserve conflicting SEC feed for audit."""
+    ticker = normalize_ticker(ticker)
+    if not match:
+        return None, None
+    conflict = issuer_guard(ticker, match)
+    override = CIK_OVERRIDES.get(ticker)
+    if conflict and override:
+        return {**override, 'resolution_source': 'verified_parent_override',
+                'sec_feed_cik': match['cik'], 'sec_feed_name': match['sec_name']}, conflict
+    if conflict:
+        return None, conflict
+    return {**match, 'resolution_source': 'sec_ticker_feed'}, None
+
 def issuer_guard(ticker, match):
     expected = EXPECTED_ISSUERS.get(ticker)
     if not expected:
@@ -46,7 +63,7 @@ def sync_and_clean_ciks(db, sec, apply=False):
     mapping = sec_map(sec)  # one SEC fetch, reused for entire run
     report = {'mode': 'apply' if apply else 'dry_run', 'sec_tickers': len(mapping),
               'scanned': 0, 'cik_changes': [], 'unchanged': 0,
-              'untracked': [], 'identity_conflicts': [], 'errors': []}
+              'untracked': [], 'identity_conflicts': [], 'resolved_overrides': [], 'errors': []}
     for doc in db.companies.find({}, {'_id': 1, 'ticker': 1, 'cik': 1, 'sec_name': 1, 'universe_class': 1}):
         report['scanned'] += 1
         ticker = normalize_ticker(doc.get('ticker'))
@@ -63,11 +80,14 @@ def sync_and_clean_ciks(db, sec, apply=False):
                     'universe_class': 'untracked_legacy_or_orphan',
                     'cik_sync_at': datetime.now(timezone.utc)}})
             continue
-        conflict = issuer_guard(ticker, match)
+        resolved, conflict = resolve_issuer(ticker, match)
         if conflict:
-            report['identity_conflicts'].append({'ticker': ticker, 'reason': conflict})
-            # No write for identity conflict; do not replace XOM with subsidiary.
-            continue
+            if resolved is None:
+                report['identity_conflicts'].append({'ticker': ticker, 'reason': conflict})
+                continue
+            report['resolved_overrides'].append({'ticker': ticker, 'reason': conflict,
+                'resolved_cik': resolved['cik'], 'source': resolved['resolution_source']})
+        match = resolved
         try:
             old = cik10(doc.get('cik'))
         except ValueError:
@@ -84,10 +104,12 @@ def sync_and_clean_ciks(db, sec, apply=False):
             db.companies.update_one({'_id': doc['_id']}, {'$set': {
                 'cik': match['cik'], 'sec_name': match['sec_name'],
                 'universe_class': 'tracked_collector',
+                'cik_resolution_source': match['resolution_source'],
                 'cik_sync_at': datetime.now(timezone.utc)}})
     report['cik_changes_count'] = len(report['cik_changes'])
     report['untracked_count'] = len(report['untracked'])
     report['identity_conflicts_count'] = len(report['identity_conflicts'])
+    report['resolved_overrides_count'] = len(report['resolved_overrides'])
     return report
 
 def main():

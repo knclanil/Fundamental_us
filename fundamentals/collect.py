@@ -9,7 +9,7 @@ from .universe import fetch_large_caps,join_sec
 from .normalize import normalize, diagnose_annual
 from .sec_inventory import inventory
 from .migrate import migrate_all
-from .cik_sync import sec_map, normalize_ticker, issuer_guard
+from .cik_sync import sec_map, normalize_ticker, resolve_issuer, cik10
 
 def now(): return datetime.now(timezone.utc)
 def aware(value):
@@ -44,26 +44,35 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
     print(f'RUN_CONFIG limit={limit} refresh_days={refresh_days} force_refresh={force_refresh} years={years} tickers={sorted(requested)}',flush=True)
     universe=fetch_large_caps(min_cap)
     official = sec_map(sec)
-    # The official SEC map is the sole CIK source for companyfacts requests.
-    # Explicit issuer guard prevents accidental XOM subsidiary collection.
-    companies=join_sec(universe,[{'ticker': t, 'cik_str': v['cik'], 'title': v['sec_name']} for t,v in official.items()])
+    # Resolve issuer identity BEFORE joining the S&P 500 universe. A ticker
+    # feed match is not always the reporting issuer (notably XOM).
+    resolved = {}
+    conflicts = []
+    for ticker, match in official.items():
+        issuer, conflict = resolve_issuer(ticker, match)
+        if conflict and issuer is None:
+            conflicts.append((ticker, conflict))
+        if issuer:
+            resolved[ticker] = issuer
+            if conflict:
+                print(f'CIK_OVERRIDE ticker={ticker} SEC={match["cik"]} resolved={issuer["cik"]}', flush=True)
+    companies=join_sec(universe,[{'ticker': t, 'cik_str': v['cik'], 'title': v['sec_name']} for t,v in resolved.items()])
     companies=[c for c in companies if c['ticker'] not in {'ACU','ADX','AEMRF','AIR','AKZOY','BKTI'}]
     if requested:
         matched=[c for c in companies if c['ticker'].upper() in requested]
         missing=requested-{c['ticker'].upper() for c in matched}
         if missing:raise ValueError(f'Unknown or unmapped requested tickers: {sorted(missing)}')
         companies=matched
-    conflicts=[(c['ticker'], issuer_guard(c['ticker'], official[c['ticker']])) for c in companies]
-    conflicts=[x for x in conflicts if x[1]]
-    if conflicts:
-        raise RuntimeError(f'SEC issuer identity mismatch; aborting before any financial writes: {conflicts}')
+    selected_conflicts=[(ticker, reason) for ticker, reason in conflicts
+                        if ticker in {c['ticker'] for c in companies}]
+    if selected_conflicts:
+        raise RuntimeError(f'Unresolved SEC issuer identity mismatch: {selected_conflicts}')
     # Check stored CIKs against official map. Do not silently fetch another entity.
     for c in companies:
         stored=db.companies.find_one({'ticker': c['ticker']}, {'cik':1,'universe_class':1})
         if stored and stored.get('universe_class') == 'untracked_legacy_or_orphan':
             raise RuntimeError(f'Ticker marked untracked: {c["ticker"]}')
         if stored and stored.get('cik'):
-            from .cik_sync import cik10
             if cik10(stored['cik']) != cik10(c['cik']):
                 raise RuntimeError(f'CIK sync required for {c["ticker"]}: DB={stored["cik"]} SEC={c["cik"]}')
     if not companies:raise RuntimeError('No SEC-mapped large caps; aborting')
@@ -132,7 +141,11 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
                     archive['archive_reason']='quarterly_label_at_verified_annual_year_end'
                     db.financial_period_archive.replace_one({'_id':archive['_id']},archive,upsert=True)
                     db.financial_quarterly.delete_one({'_id':old['_id'],'cik':cik})
-                db.companies.update_one({'_id':cik},{'$set':{k:v for k,v in company.items() if k!='cik'}|{'cik':f'{cik:010d}','universe_class':'tracked_collector','updated_at':now()}},upsert=True)
+                # Update the existing profile by ticker where present; don't
+                # create a second profile with _id=CIK for the same ticker.
+                profile=db.companies.find_one({'ticker':company['ticker']}, {'_id':1})
+                profile_filter={'_id':profile['_id']} if profile else {'_id':cik}
+                db.companies.update_one(profile_filter,{'$set':{k:v for k,v in company.items() if k!='cik'}|{'cik':f'{cik:010d}','universe_class':'tracked_collector','updated_at':now()}},upsert=True)
                 db.largecap_collection_state.update_one({'_id':cik},{'$set':{
                     'last_success_at':now(),'last_checked_at':now(),
                     'reporting_status':coverage,'annual_period_count':annual_count,
