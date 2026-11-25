@@ -11,11 +11,12 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from pymongo import MongoClient
+from .balance_sheet import assess
 
 METRICS = ('revenue','net_income','eps_basic','eps_diluted','assets','liabilities','equity',
            'operating_cash_flow','capex','free_cash_flow')
 TOLERANCE = 0.02
-VERSION = '4.2.1'
+VERSION = '4.3.2'
 
 def iso(value):
     if isinstance(value, (datetime,date)):
@@ -65,15 +66,13 @@ def cashflow_issues(rows):
 def reconcile(rows):
     issues=[]
     for row in rows:
-        values=[(row.get('metrics') or {}).get(x) for x in ('assets','liabilities','equity')]
-        if any(not isinstance(v,(int,float)) or isinstance(v,bool) for v in values):
-            continue
-        assets,liabilities,equity=values
-        residual=assets-liabilities-equity
-        if abs(residual)>max(abs(assets)*TOLERANCE,1):
-            issues.append({'code':'balance_sheet_unreconciled','period_end':iso(row.get('period_end')),
-                           'residual':residual,'relative_to_assets':round(abs(residual)/max(abs(assets),1),6),
-                           'note':'May reflect noncontrolling interests or SEC tag selection; review, do not auto-correct'})
+        check=assess(row.get('metrics') or {})
+        if check['status'] in ('unreconciled','scale_outlier'):
+            issues.append({'code':'balance_sheet_unreconciled' if check['status']=='unreconciled' else 'balance_sheet_scale_outlier',
+                           'period_end':iso(row.get('period_end')),
+                           'residual':check['residual'],
+                           'relative_to_assets':round(check['relative_difference'],6),
+                           'note':'Review SEC provenance; do not auto-overwrite reported facts'})
     return issues
 
 def analyze_company(company,annual,quarterly,state=None):
@@ -84,16 +83,23 @@ def analyze_company(company,annual,quarterly,state=None):
         for issue in fiscal_issues(rows):issues.append({'collection':kind,**issue})
         for issue in reconcile(rows):issues.append({'collection':kind,**issue})
         for issue in cashflow_issues(rows):issues.append({'collection':kind,**issue})
-    if len(annual)<5:issues.append({'code':'annual_coverage_below_target','found':len(annual),'target':5})
-    if len(quarterly)<16:issues.append({'code':'quarterly_history_short_review','found':len(quarterly),'reference':20,'note':'Review SEC source and fiscal calendar; 20 is not universally required'})
+    status=(state or {}).get('reporting_status') or company.get('reporting_status')
+    spinoff=bool(company.get('is_spinoff'))
+    info=[]
+    if len(annual)<5:
+        finding={'code':'annual_coverage_below_target','found':len(annual),'target':5}
+        (info if spinoff or status=='partial' else issues).append(finding)
+    if len(quarterly)<16:
+        finding={'code':'quarterly_history_short_review','found':len(quarterly),'reference':20}
+        (info if spinoff or status=='partial' else issues).append(finding)
     latest=max((iso(r.get('period_end')) for r in all_rows if r.get('period_end')),default=None)
     return {'cik':identity(company),'ticker':company.get('ticker'),'name':company.get('name') or company.get('title'),
-            'reporting_status':(state or {}).get('reporting_status'),'universe_class':'tracked_collector' if state else 'untracked_legacy_or_orphan','annual_count':len(annual),
+            'reporting_status':status,'is_spinoff':spinoff,'informational_notes':info,'universe_class':'tracked_collector' if state else 'untracked_legacy_or_orphan','annual_count':len(annual),
             'quarterly_count':len(quarterly),'latest_period_end':latest,
             'missing_metric_counts':missing,'issue_count':len(issues),'issues':issues}
 
 def generate(db,expected=500):
-    companies=list(db.companies.find({}, {'_id':1,'cik':1,'ticker':1,'name':1,'title':1}))
+    companies=list(db.companies.find({}, {'_id':1,'cik':1,'ticker':1,'name':1,'title':1,'is_spinoff':1,'reporting_status':1}))
     annual=defaultdict(list);quarterly=defaultdict(list)
     for row in db.financial_annual.find({}, {'_id':0}):annual[identity(row)].append(row)
     for row in db.financial_quarterly.find({}, {'_id':0}):quarterly[identity(row)].append(row)
@@ -115,6 +121,7 @@ def generate(db,expected=500):
              'companies_with_5_annual':sum(r['annual_count']>=5 for r in results),
              'companies_with_20_quarterly':sum(r['quarterly_count']>=20 for r in results),
              'issue_counts':dict(sorted(issue_counts.items())),
+             'informational_notes':sum(len(r['informational_notes']) for r in results),
              'quarterly_19_or_more':sum(r['quarterly_count']>=19 for r in results),
              'note_on_quarters':'A 19-quarter history can be valid. Under 16 triggers review, not a confirmed source error.',
              'note':'Collector state is a historical processing set, NOT verified current S&P 500 membership. Counts are not independent SEC verification.'}

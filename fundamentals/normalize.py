@@ -9,7 +9,12 @@ TAGS = {
     'net_income':['NetIncomeLoss','ProfitLoss'],
     'eps_basic':['EarningsPerShareBasic'], 'eps_diluted':['EarningsPerShareDiluted'],
     'assets':['Assets'], 'liabilities':['Liabilities'],
-    'equity':['StockholdersEquity','StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'],
+    'liabilities_and_stockholders_equity':['LiabilitiesAndStockholdersEquity'],
+    'liabilities_noncurrent':['LiabilitiesNoncurrent'],
+    'equity_including_nci':['StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'],
+    'noncontrolling_interest':['MinorityInterest'],
+    'redeemable_nci':['RedeemableNoncontrollingInterestEquityCarryingAmount','TemporaryEquityCarryingAmountAttributableToParent'],
+    'equity':['StockholdersEquity'],
     'cash':['CashAndCashEquivalentsAtCarryingValue'],
     'current_assets':['AssetsCurrent'], 'current_liabilities':['LiabilitiesCurrent'],
     'long_term_debt':['LongTermDebtNoncurrent','LongTermDebt'],
@@ -19,8 +24,8 @@ TAGS = {
     'shares':['CommonStockSharesOutstanding']
 }
 UNITS={'eps_basic':'USD/shares','eps_diluted':'USD/shares','shares':'shares'}
-INSTANT={'assets','liabilities','equity','cash','current_assets','current_liabilities','long_term_debt','short_term_debt','shares'}
-FORMS={'10-K','10-K/A','10-Q','10-Q/A'}
+INSTANT={'assets','liabilities','liabilities_and_stockholders_equity','liabilities_noncurrent','equity_including_nci','noncontrolling_interest','redeemable_nci','equity','cash','current_assets','current_liabilities','long_term_debt','short_term_debt','shares'}
+FORMS={'10-K','10-Q'}
 
 def _shift_months(day, months):
     index = day.year * 12 + day.month - 1 + months
@@ -42,7 +47,7 @@ def _fiscal_calendar(gaap, today):
                 end = date.fromisoformat(obs['end'])
                 start = date.fromisoformat(obs['start'])
                 filed = date.fromisoformat(obs['filed'])
-                if (obs.get('form') in ('10-K', '10-K/A') and
+                if (obs.get('form') in ('10-K',) and
                         330 <= (end-start).days+1 <= 380 and filed <= today and end <= today):
                     ends.append(end)
             except (ValueError, TypeError, KeyError):
@@ -56,7 +61,7 @@ def _fiscal_calendar(gaap, today):
             for obs in (gaap.get(tag) or {}).get('units', {}).get('USD', []):
                 try:
                     start=date.fromisoformat(obs['start']); end=date.fromisoformat(obs['end'])
-                    if (obs.get('form') in ('10-Q','10-Q/A') and
+                    if (obs.get('form') in ('10-Q',) and
                         obs.get('fp')=='Q1' and 70 <= (end-start).days+1 <= 110):
                         ends.append(_shift_months(end,9))
                 except (KeyError,ValueError,TypeError):continue
@@ -67,7 +72,7 @@ def _fiscal_calendar(gaap, today):
             for obs in (gaap.get(tag) or {}).get('units', {}).get('USD', []):
                 try:
                     start=date.fromisoformat(obs['start']); end=date.fromisoformat(obs['end'])
-                    if (obs.get('form') in ('10-Q','10-Q/A') and
+                    if (obs.get('form') in ('10-Q',) and
                         obs.get('fp')=='Q3' and 70 <= (end-start).days+1 <= 110):
                         ends.append(_shift_months(end,3))
                 except (KeyError,ValueError,TypeError):continue
@@ -80,7 +85,7 @@ def _fiscal_calendar(gaap, today):
                 try:
                     end=date.fromisoformat(obs['end'])
                     filed=date.fromisoformat(obs['filed'])
-                    if (obs.get('form') in ('10-K','10-K/A') and
+                    if (obs.get('form') in ('10-K',) and
                             obs.get('fp')=='FY' and filed<=today and end<=today):
                         ends.append(end)
                 except (KeyError, ValueError, TypeError):
@@ -155,7 +160,7 @@ def normalize(payload,years=5,today=None):
                         if not start:continue
                         start_date=date.fromisoformat(start)
                         days=(end-start_date).days+1
-                        if is_annual and not 330<=days<=380:continue
+                        if is_annual and not (350<=days<=381 if metric in ('eps_basic','eps_diluted') else 330<=days<=380):continue
                         if is_quarter and not 70<=days<=110:
                             # Cash flow is generally reported year-to-date in 10-Q.
                             # Retain it for a DIFFERENCE, never as standalone cash flow.
@@ -233,6 +238,10 @@ def normalize(payload,years=5,today=None):
             row['metrics'][metric]=current[2]-previous_value
             row['metric_sources'][metric]={'method':'ytd_difference','current':src1,'previous':src0}
 
+    from .balance_sheet import enrich_balance_sheet
+    for row in rows.values():
+        enrich_balance_sheet(row['metrics'], row['metric_sources'])
+
     # Q4 is derived only from annual data and an actual Q3 reporting period
     # whose end is approximately one quarter before the annual end.
     for annual in [r for r in rows.values() if r['period_type']=='annual']:
@@ -269,6 +278,7 @@ def normalize(payload,years=5,today=None):
     result=[]
     for row in rows.values():
         row.pop('_priorities')
+        enrich_balance_sheet(row['metrics'], row['metric_sources'])
         m=row['metrics']
         if 'operating_cash_flow' in m and 'capex' in m:
             m['free_cash_flow']=m['operating_cash_flow']-abs(m['capex'])
@@ -294,7 +304,7 @@ def diagnose_annual(payload, years=5, today=None):
         for unit,items in ((gaap.get(tag) or {}).get('units') or {}).items():
             if unit not in ('USD','USD/shares','shares'):continue
             for item in items:
-                if item.get('form') not in ('10-K','10-K/A'):continue
+                if item.get('form') not in ('10-K',):continue
                 counts['annual_form_observations']+=1
                 try:
                     end=date.fromisoformat(item['end']); filed=date.fromisoformat(item['filed'])
