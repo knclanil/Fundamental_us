@@ -79,3 +79,15 @@ To verify the three recent quarterly-only companies, dispatch the workflow with
 `tickers=XOM,HONA,VYLR`, `limit=10`, `force_refresh=true`. A successful run
 may report `partial=3`, not `success=3`. This does **not** establish five years
 of historical annual data for the three CIKs.
+
+## v4.2.0 — Financial Data Quality Audit (read-only)
+
+Open **Actions → Financial data quality audit v4.2.0 → Run workflow**. The separate audit workflow reads `MONGODB_URI` and the `maketdata` database and uploads the `maketdata-financial-quality-v4.2.0` artifact containing:
+
+- `quality_report.json` — full company-level diagnostics and aggregate totals.
+- `company_coverage.csv` — period counts, most recent period, and missing-metric counts.
+- `quality_issues.csv` — flagged records for investigation.
+
+The workflow also runs Mondays at 06:45 UTC. To run locally after installing `requirements-largecap.txt`, set `MONGODB_URI` and execute `python -m fundamentals.quality_audit --output artifacts/financial-quality`.
+
+**Scope and interpretation:** This is a *database* audit, not a comparison with fresh SEC source data or a point-in-time S&P 500 constituent list. Five annual and twenty quarterly periods are coverage targets, not universal guarantees. Balance-sheet residuals are flags, not proof of accounting errors; noncontrolling interests and alternate equity tags can explain them. Missing values are counted across existing stored documents; zero is a valid present value. This audit does not edit MongoDB or change the existing v4.1.8.4 collection workflow.

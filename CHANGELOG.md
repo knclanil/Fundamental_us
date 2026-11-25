@@ -68,3 +68,9 @@ Suggested commit: `fix(v4.1.4): reconcile legacy unique indexes and harden SEC c
 - Logs mapped CIK, SEC entity name, namespace/tag inventory, 10-K counts, candidate end dates and recognized metrics.
 - Preserved normalization, MongoDB write safeguards, and existing scheduling defaults.
 - Added inventory unit tests.
+
+## v4.2.0 — 2026-11-25
+- Added a separate, read-only MongoDB financial quality audit; collector v4.1.8.4 is unchanged.
+- Reports annual/quarterly coverage, missing metrics, fiscal-label issues, duplicate identities, balance-sheet residuals, and YTD cash-flow source date mismatches.
+- Added downloadable JSON and CSV GitHub Actions artifacts, a weekly schedule, and focused regression tests.
+- Does not alter MongoDB documents or attempt automatic accounting corrections.
