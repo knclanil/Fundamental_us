@@ -9,6 +9,7 @@ from .universe import fetch_large_caps,join_sec
 from .normalize import normalize, diagnose_annual
 from .sec_inventory import inventory
 from .migrate import migrate_all
+from .cik_sync import sec_map, normalize_ticker, issuer_guard
 
 def now(): return datetime.now(timezone.utc)
 def aware(value):
@@ -39,16 +40,33 @@ def indexes(db):
 
 def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None):
     if limit<1 or refresh_days<0 or years<1 or min_cap<=0:raise ValueError('Invalid arguments')
-    requested={t.strip().upper() for t in (tickers or []) if t.strip()}
+    requested={normalize_ticker(t) for t in (tickers or []) if t.strip()}
     print(f'RUN_CONFIG limit={limit} refresh_days={refresh_days} force_refresh={force_refresh} years={years} tickers={sorted(requested)}',flush=True)
     universe=fetch_large_caps(min_cap)
-    companies=join_sec(universe,sec.tickers())
-    if not companies:raise RuntimeError('No SEC-mapped large caps; aborting')
+    official = sec_map(sec)
+    # The official SEC map is the sole CIK source for companyfacts requests.
+    # Explicit issuer guard prevents accidental XOM subsidiary collection.
+    companies=join_sec(universe,[{'ticker': t, 'cik_str': v['cik'], 'title': v['sec_name']} for t,v in official.items()])
+    companies=[c for c in companies if c['ticker'] not in {'ACU','ADX','AEMRF','AIR','AKZOY','BKTI'}]
     if requested:
         matched=[c for c in companies if c['ticker'].upper() in requested]
         missing=requested-{c['ticker'].upper() for c in matched}
         if missing:raise ValueError(f'Unknown or unmapped requested tickers: {sorted(missing)}')
         companies=matched
+    conflicts=[(c['ticker'], issuer_guard(c['ticker'], official[c['ticker']])) for c in companies]
+    conflicts=[x for x in conflicts if x[1]]
+    if conflicts:
+        raise RuntimeError(f'SEC issuer identity mismatch; aborting before any financial writes: {conflicts}')
+    # Check stored CIKs against official map. Do not silently fetch another entity.
+    for c in companies:
+        stored=db.companies.find_one({'ticker': c['ticker']}, {'cik':1,'universe_class':1})
+        if stored and stored.get('universe_class') == 'untracked_legacy_or_orphan':
+            raise RuntimeError(f'Ticker marked untracked: {c["ticker"]}')
+        if stored and stored.get('cik'):
+            from .cik_sync import cik10
+            if cik10(stored['cik']) != cik10(c['cik']):
+                raise RuntimeError(f'CIK sync required for {c["ticker"]}: DB={stored["cik"]} SEC={c["cik"]}')
+    if not companies:raise RuntimeError('No SEC-mapped large caps; aborting')
     print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
     run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'partial':0,'insufficient_data':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
@@ -114,7 +132,7 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
                     archive['archive_reason']='quarterly_label_at_verified_annual_year_end'
                     db.financial_period_archive.replace_one({'_id':archive['_id']},archive,upsert=True)
                     db.financial_quarterly.delete_one({'_id':old['_id'],'cik':cik})
-                db.companies.update_one({'_id':cik},{'$set':{k:v for k,v in company.items() if k!='cik'}|{'updated_at':now()}},upsert=True)
+                db.companies.update_one({'_id':cik},{'$set':{k:v for k,v in company.items() if k!='cik'}|{'cik':f'{cik:010d}','universe_class':'tracked_collector','updated_at':now()}},upsert=True)
                 db.largecap_collection_state.update_one({'_id':cik},{'$set':{
                     'last_success_at':now(),'last_checked_at':now(),
                     'reporting_status':coverage,'annual_period_count':annual_count,

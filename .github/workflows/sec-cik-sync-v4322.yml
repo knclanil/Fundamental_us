@@ -1,0 +1,52 @@
+name: SEC CIK sync and guarded recollection v4.3.2.2
+on:
+  workflow_dispatch:
+    inputs:
+      apply_sync:
+        description: 'Apply CIK/profile updates (unchecked = dry run)'
+        type: boolean
+        required: true
+        default: false
+      recollect:
+        description: 'Recollect after successful CIK synchronization (writes financials)'
+        type: boolean
+        required: true
+        default: false
+      tickers:
+        description: 'Comma-separated tickers (start with XOM)'
+        type: string
+        required: true
+        default: 'XOM'
+permissions:
+  contents: read
+concurrency:
+  group: maketdata-financial-write
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE: maketdata
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements-largecap.txt
+      - run: python -m unittest discover -s tests -p 'test_cik_sync*.py' -v
+      - name: Sync SEC CIKs
+        run: |
+          if [ '${{ inputs.apply_sync }}' = 'true' ]; then
+            python -m fundamentals.cik_sync --apply
+          else
+            python -m fundamentals.cik_sync
+          fi
+      - name: Recollect with verified CIKs
+        if: ${{ inputs.apply_sync && inputs.recollect }}
+        env:
+          SELECTED_TICKERS: ${{ inputs.tickers }}
+        run: |
+          python -m fundamentals.collect --tickers "$SELECTED_TICKERS" --force-refresh --years 5 --limit 500
