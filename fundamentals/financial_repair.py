@@ -17,7 +17,7 @@ from .quality_audit import reconcile
 from .balance_sheet import assess
 from .cik_sync import cik10
 
-VERSION = '4.3.2.6'
+VERSION = '4.3.2.7'
 from .repair_validation import validate
 
 def missing(value):
@@ -89,6 +89,62 @@ def check_candidate_balance(existing, additions):
             return True
     return False
 
+def verified_equity_replacement(old, candidate):
+    """Suggest an equity correction only with independently consistent SEC facts.
+
+    This is a REVIEW proposal, not authorization to overwrite MongoDB.
+    The SEC Company Facts API does not guarantee the absence of dimensional
+    context, so automatic replacement would be unsafe without filing-level XBRL.
+    """
+    old_m=old.get('metrics') or {}
+    new_m=candidate.get('metrics') or {}
+    sources=candidate.get('metric_sources') or {}
+    old_check=assess(old_m)
+    new_check=assess(new_m)
+    if old_check.get('status') not in ('unreconciled','scale_outlier'):
+        return None
+    if new_check.get('status')!='reconciled':
+        return None
+    if old_m.get('equity')==new_m.get('equity') or new_m.get('equity') is None:
+        return None
+    # All three independent values must be directly reported from the same
+    # filing, and each must represent the same reporting instant.
+    refs=[sources.get(k) for k in ('assets','liabilities','equity')]
+    if any(not isinstance(r,dict) or r.get('method') or
+           not r.get('accession') or r.get('start') is not None or
+           r.get('end')!=old.get('period_end') for r in refs):
+        return None
+    if len({r['accession'] for r in refs})!=1:
+        return None
+    # Other equity components can alter the accounting equation.  Do not
+    # assert that parent equity alone is total equity if NCI is present.
+    if any(new_m.get(k) is not None for k in ('equity_including_nci','noncontrolling_interest','redeemable_nci')):
+        return None
+    return {'metric':'equity','stored':old_m.get('equity'),
+            'candidate':new_m['equity'],'source':sources['equity'],
+            'detail':'same_accession_direct_SEC_facts_reconcile; filing_review_required'}
+
+
+def eps_gap_reviews(old, candidate, ticker, cik, kind):
+    """Make missing EPS visible even when SEC normalization lacks EPS."""
+    out=[]
+    old_m=old.get('metrics') or {}; new_m=candidate.get('metrics') or {}
+    new_sources=candidate.get('metric_sources') or {}
+    for metric in ('eps_basic','eps_diluted'):
+        if old_m.get(metric) is not None:
+            continue
+        if new_m.get(metric) is None:
+            out.append({'ticker':ticker,'cik':cik,'collection':kind,
+                'period':old.get('period'),'period_end':old.get('period_end'),
+                'metric':metric,'status':'EPS_SOURCE_MISSING_REVIEW',
+                'detail':'No eligible standalone SEC EPS fact; do not derive EPS from rounded figures'})
+        elif not new_sources.get(metric):
+            out.append({'ticker':ticker,'cik':cik,'collection':kind,
+                'period':old.get('period'),'period_end':old.get('period_end'),
+                'metric':metric,'status':'EPS_PROVENANCE_REVIEW',
+                'candidate':new_m[metric]})
+    return out
+
 def repair_company(db, sec, company, years=5, apply=False):
     ticker=company['ticker']; cik=int(cik10(company.get('cik') or company['_id']))
     payload=sec.company_facts(cik)
@@ -104,6 +160,15 @@ def repair_company(db, sec, company, years=5, apply=False):
                 totals['periods_not_in_sec_normalization']+=1
                 continue
             additions,conflicts,skipped=plan(old,candidate)
+            eps_reviews=eps_gap_reviews(old,candidate,ticker,cik,kind)
+            records.extend(eps_reviews)
+            totals['eps_source_missing_review']+=sum(r['status']=='EPS_SOURCE_MISSING_REVIEW' for r in eps_reviews)
+            equity_proposal=verified_equity_replacement(old,candidate)
+            if equity_proposal:
+                records.append({'ticker':ticker,'cik':cik,'collection':kind,
+                    'period':old.get('period'),'period_end':old.get('period_end'),
+                    'status':'EQUITY_REPLACEMENT_REVIEW',**equity_proposal})
+                totals['equity_replacement_review']+=1
             totals['conflicts']+=len(conflicts)
             for conflict in conflicts:
                 records.append({'ticker':ticker,'cik':cik,'collection':kind,'period':old.get('period'),
@@ -171,7 +236,9 @@ def save_report(rows,summary,path,apply):
                 'New periods reported but not inserted automatically',
                 'Industry-specific SEC custom XBRL extensions not parsed',
                 'Unresolved balance-sheet mismatches require source review',
-                'Report does not independently certify SEC financial accuracy']}
+                'Report does not independently certify SEC financial accuracy',
+                'Equity replacements are review-only pending filing-level dimensional context verification',
+                'EPS gaps are explicitly reported; EPS is never fabricated from net income/shares']}
     (directory/'repair_summary.json').write_text(json.dumps(report,indent=2,default=str)+'\n')
     fields=['ticker','cik','collection','period','period_end','metric','status','stored','candidate','source','detail']
     with (directory/'repair_details.csv').open('w',newline='',encoding='utf-8') as fh:
