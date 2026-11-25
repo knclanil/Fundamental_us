@@ -16,7 +16,7 @@ from .balance_sheet import assess
 METRICS = ('revenue','net_income','eps_basic','eps_diluted','assets','liabilities','equity',
            'operating_cash_flow','capex','free_cash_flow')
 TOLERANCE = 0.02
-VERSION = '4.3.2'
+VERSION = '4.3.2.5'
 
 def iso(value):
     if isinstance(value, (datetime,date)):
@@ -24,7 +24,14 @@ def iso(value):
     return str(value) if value is not None else None
 
 def identity(row):
-    return str(row.get('cik', row.get('_id')))
+    """Canonical SEC CIK; numeric CIKs and zero-padded strings are identical."""
+    value = row.get('cik')
+    if value is None or str(value).strip() == '':
+        value = row.get('_id')
+    value = str(value).strip()
+    if value.isdecimal() and len(value) <= 10:
+        return value.zfill(10)
+    return 'invalid:' + value
 
 def fiscal_issues(rows):
     issues=[]
@@ -99,22 +106,45 @@ def analyze_company(company,annual,quarterly,state=None):
             'missing_metric_counts':missing,'issue_count':len(issues),'issues':issues}
 
 def generate(db,expected=500):
-    companies=list(db.companies.find({}, {'_id':1,'cik':1,'ticker':1,'name':1,'title':1,'is_spinoff':1,'reporting_status':1}))
+    companies=list(db.companies.find({}, {'_id':1,'cik':1,'ticker':1,'name':1,'title':1,'is_spinoff':1,'reporting_status':1,'universe_class':1}))
     annual=defaultdict(list);quarterly=defaultdict(list)
     for row in db.financial_annual.find({}, {'_id':0}):annual[identity(row)].append(row)
     for row in db.financial_quarterly.find({}, {'_id':0}):quarterly[identity(row)].append(row)
-    states={str(s['_id']):s for s in db.largecap_collection_state.find({}, {'_id':1,'reporting_status':1})}
-    company_by_cik={identity(c):c for c in companies}
-    # Include any orphan financial records or state entries so they cannot disappear from audit.
-    for cik in set(annual)|set(quarterly)|set(states):
-        company_by_cik.setdefault(cik,{'_id':cik,'ticker':None})
-    results=[analyze_company(c,annual.get(cik,[]),quarterly.get(cik,[]),states.get(cik))
-             for cik,c in sorted(company_by_cik.items(),key=lambda item:(item[1].get('ticker') or '',item[0]))]
+    states=defaultdict(list)
+    for state in db.largecap_collection_state.find({}, {'_id':1,'cik':1,'reporting_status':1}):
+        states[identity(state)].append(state)
+    profiles=defaultdict(list)
+    for company in companies:
+        profiles[identity(company)].append(company)
+    keys=set(profiles)|set(annual)|set(quarterly)|set(states)
+    results=[]; collisions=[]; unmatched=[]
+    for cik in sorted(keys):
+        candidates=profiles.get(cik,[])
+        if len(candidates)>1:
+            collisions.append({'cik':cik,'profile_ids':[str(c['_id']) for c in candidates],
+                               'tickers':[c.get('ticker') for c in candidates]})
+        # Never silently merge conflicting ticker profiles. Report the conflict.
+        company=next((c for c in candidates if c.get('ticker') and c.get('universe_class')!='untracked_legacy_or_orphan'),
+                     next((c for c in candidates if c.get('ticker')), candidates[0] if candidates else {'_id':cik}))
+        state=states[cik][0] if states.get(cik) else None
+        result=analyze_company(company,annual.get(cik,[]),quarterly.get(cik,[]),state)
+        result['cik']=cik
+        result['universe_class']='tracked_collector' if state else ('profile_without_collector_state' if candidates else 'financial_without_profile')
+        result['profile_count']=len(candidates)
+        result['identity_conflict']=len(candidates)>1
+        if not candidates or not state:
+            unmatched.append({'cik':cik,'ticker':company.get('ticker'),'reason':
+                              'no_company_profile' if not candidates else 'no_collector_state'})
+        results.append(result)
+    results.sort(key=lambda r:(r.get('ticker') or '',r['cik']))
     issue_counts=Counter(i['code'] for r in results for i in r['issues'])
     summary={'generated_at':datetime.now(timezone.utc).isoformat(),'expected_companies':expected,
-             'companies_in_database_or_state':len(results),
+             'companies_in_database_or_state':len(results),'unique_normalized_ciks':len(results),
+             'company_profile_documents':len(companies),'identity_collision_count':len(collisions),
+             'unmatched_identity_count':len(unmatched),
              'tracked_collector_companies':sum(r['universe_class']=='tracked_collector' for r in results),
-             'untracked_legacy_or_orphan_companies':sum(r['universe_class']!='tracked_collector' for r in results),'companies_with_annual':sum(bool(r['annual_count']) for r in results),
+             'untracked_legacy_or_orphan_companies':sum(r['universe_class']!='tracked_collector' for r in results),
+             'companies_with_annual':sum(bool(r['annual_count']) for r in results),
              'companies_with_quarterly':sum(bool(r['quarterly_count']) for r in results),
              'annual_documents':sum(r['annual_count'] for r in results),
              'quarterly_documents':sum(r['quarterly_count'] for r in results),
@@ -123,13 +153,18 @@ def generate(db,expected=500):
              'issue_counts':dict(sorted(issue_counts.items())),
              'informational_notes':sum(len(r['informational_notes']) for r in results),
              'quarterly_19_or_more':sum(r['quarterly_count']>=19 for r in results),
-             'note_on_quarters':'A 19-quarter history can be valid. Under 16 triggers review, not a confirmed source error.',
-             'note':'Collector state is a historical processing set, NOT verified current S&P 500 membership. Counts are not independent SEC verification.'}
-    return {'version':VERSION,'summary':summary,'companies':results}
+             'note_on_quarters':'A 19-quarter history can be valid. Under 16 triggers review.',
+             'note':'Read-only audit; identity collisions and balance-sheet differences require source review.'}
+    return {'version':VERSION,'summary':summary,'companies':results,
+            'identity_collisions':collisions,'unmatched_identities':unmatched}
 
 def write_reports(report,output):
     path=Path(output);path.mkdir(parents=True,exist_ok=True)
     (path/'quality_report.json').write_text(json.dumps(report,indent=2,default=iso)+'\n',encoding='utf-8')
+    with (path/'identity_review.csv').open('w',newline='',encoding='utf-8') as handle:
+        writer=csv.writer(handle);writer.writerow(['cik','issue','details'])
+        for c in report.get('identity_collisions',[]):writer.writerow([c['cik'],'multiple_profiles',json.dumps(c,sort_keys=True)])
+        for c in report.get('unmatched_identities',[]):writer.writerow([c['cik'],c['reason'],json.dumps(c,sort_keys=True)])
     with (path/'company_coverage.csv').open('w',newline='',encoding='utf-8') as handle:
         writer=csv.writer(handle)
         writer.writerow(['ticker','cik','name','reporting_status','universe_class','annual_count','quarterly_count','latest_period_end','issue_count',*[f'missing_{m}' for m in METRICS]])
