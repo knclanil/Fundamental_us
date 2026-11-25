@@ -1,3 +1,10 @@
+## v4.3.2.14 — 2026-11-25
+- Added automatic BlackRock ETF holdings refresh with validated snapshot fallback.
+- Added non-destructive MongoDB company-profile synchronization, issuer identity guards, and resumable SEC financial collection batches.
+- Added optional strict $10B market-cap intersection using verified CSV.
+- Added GitHub Actions automation and deployment/verification guide.
+- No live MongoDB deployment or automatic market-cap provider included.
+
 ## v4.3.1 — 2026-11-25
 - Add automated SEC provenance and accounting validation gate for financial repair candidates.
 - Allow writes only for PASS candidates, and report REVIEW/FAIL without modifying MongoDB.

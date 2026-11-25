@@ -1,0 +1,58 @@
+name: BlackRock ETF universe to MongoDB v4.3.2.14
+on:
+  workflow_dispatch:
+    inputs:
+      sync_only:
+        description: 'Sync all company profiles without SEC financial collection'
+        type: boolean
+        default: false
+      batch_size:
+        description: 'SEC issuers to process per run'
+        default: '30'
+      market_cap_file:
+        description: 'Optional checked-in verified market-cap CSV path; blank = ETF universe (NOT $10B filtered)'
+        default: ''
+  schedule:
+    - cron: '25 9 * * 2-6'
+permissions:
+  contents: read
+concurrency:
+  group: blackrock-universe-db
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      MONGODB_DATABASE: maketdata
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements-largecap.txt
+      - name: Refresh BlackRock holdings (fallback to validated repository snapshot)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if python -m fundamentals.blackrock_holdings --latest --output data/blackrock_holdings_latest.csv; then
+            echo 'Using validated live holdings'
+          else
+            echo 'WARNING: live BlackRock fetch failed; using last validated checked-in snapshot'
+            cp data/blackrock_holdings_2026-11-24.csv data/blackrock_holdings_latest.csv
+          fi
+      - name: Sync MongoDB profiles and process next SEC batch
+        shell: bash
+        env:
+          SYNC_ONLY: ${{ inputs.sync_only || 'false' }}
+          BATCH_SIZE: ${{ inputs.batch_size || '30' }}
+          CAP_FILE: ${{ inputs.market_cap_file || '' }}
+        run: |
+          set -euo pipefail
+          test -n "$MONGODB_URI" && test -n "$SEC_USER_AGENT"
+          args=(--holdings-file data/blackrock_holdings_latest.csv --batch-size "$BATCH_SIZE")
+          if [ "$SYNC_ONLY" = true ]; then args+=(--sync-only); fi
+          if [ -n "$CAP_FILE" ]; then args+=(--market-cap-file "$CAP_FILE"); fi
+          python -m fundamentals.automated_universe "${args[@]}"
