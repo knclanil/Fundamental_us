@@ -84,7 +84,21 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
                 for kind,coll in (('annual',db.financial_annual),('quarterly',db.financial_quarterly)):
                     selected=[r for r in rows if r['period_type']==kind]
                     if selected:
-                        coll.bulk_write([ReplaceOne({'cik':cik,'period_end':r['period_end']},{'cik':cik,'ticker':company['ticker'],**r,'updated_at':now()},upsert=True) for r in selected], ordered=True)
+                        # v4.3.0: merge validated historical fields absent from the latest
+                        # SEC normalization so scheduled refreshes cannot erase backfills.
+                        # Fresh SEC values still take precedence; conflicts require audit.
+                        operations=[]
+                        for r in selected:
+                            previous=coll.find_one({'cik':cik,'period_end':r['period_end']})
+                            if previous:
+                                for metric,value in (previous.get('metrics') or {}).items():
+                                    if metric not in r['metrics'] and value is not None:
+                                        r['metrics'][metric]=value
+                                        if metric in (previous.get('metric_sources') or {}):
+                                            r['metric_sources'][metric]=previous['metric_sources'][metric]
+                            operations.append(ReplaceOne({'cik':cik,'period_end':r['period_end']},
+                                {'cik':cik,'ticker':company['ticker'],**r,'updated_at':now()},upsert=True))
+                        coll.bulk_write(operations,ordered=True)
                     # Remove older rows only after successful extraction and writes.
                     current_periods=[r['period_end'] for r in selected]
                     # Do not delete old records on a partial SEC response.
