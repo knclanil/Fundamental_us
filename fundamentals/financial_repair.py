@@ -14,8 +14,10 @@ from pymongo import MongoClient
 from .normalize import normalize
 from .sec_client import SecClient
 from .quality_audit import reconcile
+from .balance_sheet import assess
+from .cik_sync import cik10
 
-VERSION = '4.3.1'
+VERSION = '4.3.2.6'
 from .repair_validation import validate
 
 def missing(value):
@@ -88,7 +90,7 @@ def check_candidate_balance(existing, additions):
     return False
 
 def repair_company(db, sec, company, years=5, apply=False):
-    ticker=company['ticker']; cik=int(company['_id'])
+    ticker=company['ticker']; cik=int(cik10(company.get('cik') or company['_id']))
     payload=sec.company_facts(cik)
     if int(payload.get('cik',-1)) != cik:raise ValueError('SEC CIK mismatch')
     extracted=normalize(payload,years=years)
@@ -96,7 +98,7 @@ def repair_company(db, sec, company, years=5, apply=False):
     if len(candidates)!=len(extracted):raise ValueError('Duplicate normalized period identity')
     records=[]; totals=Counter()
     for kind,coll in (('annual',db.financial_annual),('quarterly',db.financial_quarterly)):
-        for old in coll.find({'cik':cik}):
+        for old in coll.find({'cik':{'$in':[cik,str(cik),f'{cik:010d}']}}):
             key=identity(old); candidate=candidates.get(key)
             if not candidate:
                 totals['periods_not_in_sec_normalization']+=1
@@ -105,9 +107,21 @@ def repair_company(db, sec, company, years=5, apply=False):
             totals['conflicts']+=len(conflicts)
             for conflict in conflicts:
                 records.append({'ticker':ticker,'cik':cik,'collection':kind,'period':old.get('period'),
-                    'period_end':old.get('period_end'),'metric':conflict['metric'],'status':'CONFLICT',
+                    'period_end':old.get('period_end'),'metric':conflict['metric'],'status':'EXISTING_VALUE_REVIEW',
                     'stored':conflict['stored'],'candidate':conflict['sec_candidate'],
                     'source':conflict['source']})
+            # Independently report source-derived balance sheet quality; no arithmetic
+            # residual is accepted as proof of a missing liabilities value.
+            existing_balance=assess(old.get('metrics') or {})
+            candidate_balance=assess(candidate.get('metrics') or {})
+            if existing_balance.get('status') in ('unreconciled','scale_outlier'):
+                totals['existing_balance_issues']+=1
+                records.append({'ticker':ticker,'cik':cik,'collection':kind,
+                    'period':old.get('period'),'period_end':old.get('period_end'),
+                    'metric':'balance_sheet','status':'BALANCE_REVIEW',
+                    'stored':existing_balance.get('residual'),
+                    'candidate':candidate_balance.get('residual'),
+                    'detail':f"existing={existing_balance['status']} sec_candidate={candidate_balance['status']}"})
             approved,decisions=validate(old,candidate,additions)
             for metric,item in additions.items():
                 verdict,reason=decisions[metric]
@@ -122,7 +136,7 @@ def repair_company(db, sec, company, years=5, apply=False):
     # Explicitly report SEC-normalized periods missing in DB; do not create blindly.
     for key,row in candidates.items():
         coll=db.financial_annual if key[0]=='annual' else db.financial_quarterly
-        if coll.count_documents({'cik':cik,'period_end':key[1]},limit=1)==0:
+        if coll.count_documents({'cik':{'$in':[cik,str(cik),f'{cik:010d}']},'period_end':key[1]},limit=1)==0:
             totals['new_period_candidates']+=1
             records.append({'ticker':ticker,'cik':cik,'collection':key[0],
                 'period':row.get('period'),'period_end':key[1], 'metric':'*',
@@ -132,7 +146,7 @@ def repair_company(db, sec, company, years=5, apply=False):
 def run(db,sec,tickers,apply=False,years=5):
     results=[]; totals=Counter()
     for ticker in tickers:
-        company=db.companies.find_one({'ticker':ticker})
+        company=db.companies.find_one({'ticker':ticker, 'universe_class':{'$ne':'untracked_legacy_or_orphan'}})
         if not company:
             totals['unknown_companies']+=1
             results.append({'ticker':ticker,'status':'UNKNOWN_COMPANY'})
@@ -152,7 +166,7 @@ def save_report(rows,summary,path,apply):
     report={'version':VERSION,'mode':'APPLY' if apply else 'DRY_RUN',
             'generated_at':datetime.now(timezone.utc).isoformat(),
             'summary':summary,'limitations':[
-                'No existing non-null values corrected automatically',
+                'Existing non-null values are REVIEW ONLY and never overwritten automatically',
                 'PASS means automated structural and accounting checks, not independent SEC filing verification',
                 'New periods reported but not inserted automatically',
                 'Industry-specific SEC custom XBRL extensions not parsed',
@@ -182,10 +196,13 @@ def main():
         client.admin.command('ping')
         db=client[os.getenv('MONGODB_DATABASE','maketdata')]
         if args.tickers.strip().upper()=='ALL':
-            # Only companies in tracked collection state; exclude orphan legacy tickers.
-            ciks=set(db.largecap_collection_state.distinct('_id'))
-            tickers=sorted({c['ticker'] for c in db.companies.find({'_id':{'$in':list(ciks)}},{'ticker':1})
-                            if c.get('ticker')})[:args.max_companies]
+            # The profile _id is not necessarily the CIK. v4.3.2.2 synced
+            # companies.cik, so joining state IDs against profile _id skips
+            # most/all of the universe. Select by explicit tracked profiles.
+            tickers=sorted({c['ticker'].upper() for c in db.companies.find(
+                {'ticker':{'$type':'string'},
+                 'universe_class':{'$ne':'untracked_legacy_or_orphan'}},
+                {'ticker':1}) if c.get('ticker')})[:args.max_companies]
         else:
             tickers=list(dict.fromkeys(x.strip().upper() for x in args.tickers.split(',') if x.strip()))[:args.max_companies]
         rows,summary=run(db,sec,tickers,apply=args.apply,years=args.years)

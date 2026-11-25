@@ -1,0 +1,60 @@
+name: Financial integrity v4.3.2.6 - full SEC repair review
+on:
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: 'ALL for entire universe; or comma-separated pilot tickers'
+        required: true
+        default: 'ALL'
+      apply_repair:
+        description: 'Write ONLY independently validated missing values (default OFF)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: largecap-fundamentals
+  cancel-in-progress: false
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE: maketdata
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements-largecap.txt
+      - name: Validate integrity tests
+        run: |
+          python -m unittest discover -s tests -p 'test_quality_audit.py' -v
+          python -m unittest discover -s tests -p 'test_identity_audit_v4325.py' -v
+          python -m unittest discover -s tests -p 'test_repair_v4326.py' -v
+      - name: Baseline financial audit (read only)
+        run: python -m fundamentals.quality_audit --output artifacts/financial-integrity/before --expected 500
+      - name: SEC repair review or guarded apply
+        env:
+          TICKERS: ${{ inputs.tickers }}
+          APPLY: ${{ inputs.apply_repair }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SEC_USER_AGENT"
+          ARGS=()
+          if [ "$APPLY" = 'true' ]; then ARGS+=(--apply); fi
+          python -m fundamentals.financial_repair --tickers "$TICKERS" --max-companies 500 --years 5 --output artifacts/financial-integrity/repair "${ARGS[@]}"
+      - name: Final financial audit (read only)
+        if: always()
+        run: python -m fundamentals.quality_audit --output artifacts/financial-integrity/after --expected 500
+      - name: Upload audit and repair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maketdata-financial-integrity-v4.3.2.6
+          path: artifacts/financial-integrity/
+          if-no-files-found: warn
+          retention-days: 30

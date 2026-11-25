@@ -46,6 +46,8 @@ def validate(old, candidate, additions):
             if metric not in INSTANT or old.get('fiscal_period')!='Q4':status,why='FAIL','unsupported_snapshot'
             elif annual.get('end')!=old.get('period_end') or annual.get('start') is not None:status,why='FAIL','snapshot_date_mismatch'
             elif not annual.get('tag') or not annual.get('accession'):status,why='REVIEW','incomplete_source_reference'
+        elif src.get('method') in ('assets_minus_equity','combined_minus_equity','current_plus_noncurrent'):
+            status,why='REVIEW','derived_balance_sheet_requires_independent_evidence'
         else:
             if not src.get('tag') or src.get('end')!=old.get('period_end') or not src.get('accession'):
                 status,why='REVIEW','unverified_direct_source'
