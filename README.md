@@ -57,3 +57,7 @@ Run the `S&P 500 fundamentals v4.1.8` workflow with `limit=10`, `force_refresh=t
 
 ### v4.1.8.1 test compatibility hotfix
 Restores safe fiscal-calendar inference for sparse SEC payloads: 10-K balance-sheet-only observations and Q1 cash-flow-only observations. 10-Q comparative balance-sheet snapshots are never used as calendar anchors. Run the `S&P 500 fundamentals v4.1.8.1` workflow with `limit=10`, `force_refresh=true`, `refresh_days=0` after tests pass.
+
+
+### v4.1.8.2 targeted diagnostics
+Run the S&P 500 fundamentals workflow with `tickers=XOM,HONA,VYLR`, `limit=10`, `force_refresh=true`. Only those exact symbols are examined. If no annual periods are normalized, `DIAGNOSTIC` logs show counts of SEC 10-K observations, fiscal calendar mismatches, out-of-window facts and duration mismatches. No SEC raw JSON is logged. The collector continues to protect existing financial records when no annual rows are available. The job exits nonzero if any requested company fails; inspect the diagnostic lines rather than refreshing all 500.

@@ -1,3 +1,9 @@
+## v4.1.8.2 — 2026-11-25
+- Add optional exact-ticker targeted collection without rewriting other companies.
+- Add aggregated SEC annual normalization diagnostics when no annual records are produced.
+- Preserve no-annual safeguard, prior data, and cooldown logic; force refresh remains opt-in.
+- Add diagnostic regression tests and workflow dispatch input.
+
 ## v4.1.6 — Quarterly cash-flow normalization (2026-11-24)
 - Derive standalone Q2 and Q3 operating cash flow/capex by subtracting compatible fiscal-year-to-date values.
 - Derive Q4 cash flow/capex as annual minus Q3 YTD when both are available.

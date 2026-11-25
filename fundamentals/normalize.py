@@ -268,3 +268,42 @@ def normalize(payload,years=5,today=None):
         # inspect missing fields rather than treating them as zeros.
         if m:result.append(row)
     return sorted(result,key=lambda r:(r['period_end'],r['period_type']))
+
+
+def diagnose_annual(payload, years=5, today=None):
+    """Bounded, non-sensitive aggregate diagnostics for missing annual rows.
+
+    This does not alter selection logic or persist SEC raw facts.
+    """
+    from collections import Counter
+    today=today or date.today()
+    cutoff=date(today.year-years,today.month,min(today.day,28))
+    gaap=((payload.get('facts') or {}).get('us-gaap') or {})
+    anchor=_fiscal_calendar(gaap,today)
+    counts=Counter()
+    sample=[]
+    for tag in dict.fromkeys(t for tags in TAGS.values() for t in tags):
+        for unit,items in ((gaap.get(tag) or {}).get('units') or {}).items():
+            if unit not in ('USD','USD/shares','shares'):continue
+            for item in items:
+                if item.get('form') not in ('10-K','10-K/A'):continue
+                counts['annual_form_observations']+=1
+                try:
+                    end=date.fromisoformat(item['end']); filed=date.fromisoformat(item['filed'])
+                    if not cutoff<=end<=today or filed>today:
+                        counts['outside_window']+=1;continue
+                    counts['in_window']+=1
+                    actual=_actual_period(end,anchor) if anchor else None
+                    if actual is None or actual[1]!=4:
+                        counts['calendar_mismatch']+=1
+                        if len(sample)<3:sample.append({'tag':tag,'end':str(end),'form':item['form']})
+                        continue
+                    if item.get('start'):
+                        days=(end-date.fromisoformat(item['start'])).days+1
+                        if not 330<=days<=380:
+                            counts['duration_mismatch']+=1;continue
+                    counts['candidate_annual_facts']+=1
+                except (KeyError,ValueError,TypeError):
+                    counts['invalid_dates']+=1
+    return {'fiscal_anchor':str(anchor) if anchor else None,
+            'counts':dict(counts),'sample_calendar_mismatches':sample}

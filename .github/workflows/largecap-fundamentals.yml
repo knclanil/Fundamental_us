@@ -1,4 +1,4 @@
-name: S&P 500 fundamentals v4.1.8.1
+name: S&P 500 fundamentals v4.1.8.2
 on:
   workflow_dispatch:
     inputs:
@@ -6,6 +6,10 @@ on:
         description: Maximum companies per run
         required: true
         default: '10'
+      tickers:
+        description: Optional comma-separated exact tickers (e.g. XOM,HONA,VYLR)
+        required: false
+        default: ''
       force_refresh:
         description: Bypass both success and retry cooldowns (use for verification)
         type: boolean
@@ -39,14 +43,17 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_largecap.py' -v
       - run: python -m unittest discover -s tests -p 'test_migration_indexes.py' -v
       - run: python -m unittest discover -s tests -p 'test_refresh.py' -v
+      - run: python -m unittest discover -s tests -p 'test_targeted_diagnostics.py' -v
       - run: python -m unittest discover -s tests -p 'test_period_integrity_v417.py' -v
       - name: Collect large caps
         env:
           LIMIT: ${{ github.event.inputs.limit || '10' }}
           REFRESH_DAYS: ${{ github.event.inputs.refresh_days || '7' }}
           FORCE_REFRESH: ${{ github.event.inputs.force_refresh || 'false' }}
+          TICKERS: ${{ github.event.inputs.tickers || '' }}
         run: |
           test -n "$MONGODB_URI" && test -n "$SEC_USER_AGENT"
           EXTRA_ARGS=()
           if [ "$FORCE_REFRESH" = "true" ]; then EXTRA_ARGS+=(--force-refresh); fi
+          if [ -n "$TICKERS" ]; then EXTRA_ARGS+=(--tickers "$TICKERS"); fi
           python -m fundamentals.collect --limit "$LIMIT" --refresh-days "$REFRESH_DAYS" --years 5 "${EXTRA_ARGS[@]}"
