@@ -111,3 +111,6 @@ Suggested commit: `fix(v4.1.4): reconcile legacy unique indexes and harden SEC c
 - Added `blackrock_holdings` SEC universe option, separate from strict $10B+ universe.
 - Added offline parsing tests using user-provided Nov 24, 2026 holdings files.
 - No automatic market-cap inference, MongoDB deletion, or deployment.
+
+## v4.3.2.16 (2026-11-25)
+- Add verified workflow inventory guard, legacy-workflow removal helper, deployment guide, and tests.
