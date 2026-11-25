@@ -1,4 +1,4 @@
-"""v4.1.7: SEC normalization with reporting-date-anchored quarterly cash flows."""
+"""v4.1.9: fiscal calendar inference with sparse-fact fixture support."""
 from datetime import date, timedelta
 import calendar
 
@@ -50,7 +50,8 @@ def _fiscal_calendar(gaap, today):
         # A Q1 3-month duration is a safe fiscal calendar anchor when no
         # annual duration is available in a synthetic or sparse payload.
         for tag in ('Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax',
-                    'NetIncomeLoss', 'OperatingIncomeLoss'):
+                    'NetIncomeLoss', 'OperatingIncomeLoss',
+                    'NetCashProvidedByUsedInOperatingActivities'):
             for obs in (gaap.get(tag) or {}).get('units', {}).get('USD', []):
                 try:
                     start=date.fromisoformat(obs['start']); end=date.fromisoformat(obs['end'])
@@ -69,6 +70,20 @@ def _fiscal_calendar(gaap, today):
                         obs.get('fp')=='Q3' and 70 <= (end-start).days+1 <= 110):
                         ends.append(_shift_months(end,3))
                 except (KeyError,ValueError,TypeError):continue
+    if not ends:
+        # Sparse Company Facts may contain only 10-K balance-sheet instants.
+        # A 10-K FY snapshot is a fiscal year-end candidate; never infer
+        # a quarter from a 10-Q comparative instant.
+        for tag in ('Assets', 'Liabilities', 'StockholdersEquity'):
+            for obs in (gaap.get(tag) or {}).get('units', {}).get('USD', []):
+                try:
+                    end=date.fromisoformat(obs['end'])
+                    filed=date.fromisoformat(obs['filed'])
+                    if (obs.get('form') in ('10-K','10-K/A') and
+                            obs.get('fp')=='FY' and filed<=today and end<=today):
+                        ends.append(end)
+                except (KeyError, ValueError, TypeError):
+                    continue
     if not ends:
         return None
     # Use the most recent annual end to establish the company's fiscal calendar.

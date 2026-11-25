@@ -41,3 +41,10 @@ Suggested commit: `fix(v4.1.4): reconcile legacy unique indexes and harden SEC c
 - Archive and remove legacy Q1-Q3 quarterly documents at verified annual period ends after successful refresh.
 - Add calendar-year, August-year-end, and comparative-filing regression tests.
 - Limitation: material fiscal-year-end changes and unusual 52/53-week calendars require additional review.
+
+## v4.1.8.1 — 2026-11-25
+- Fix two pre-collection GitHub Actions test failures caused by requiring income-statement facts for fiscal-calendar inference.
+- Add safe 10-K instant-only fallback and Q1 cash-flow-only fallback when annual income-statement observations are absent.
+- Do not use comparative 10-Q balance-sheet instants as fiscal calendar anchors.
+- Add three sparse-payload regression tests.
+- No MongoDB migration or destructive changes added.

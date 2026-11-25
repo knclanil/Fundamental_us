@@ -54,3 +54,6 @@ Run the `S&P 500 fundamentals v4.1.8` workflow with `limit=10`, `force_refresh=t
 **Existing data repair:** On a successful company refresh, misclassified Q1–Q3 records whose end dates coincide with verified annual records are copied into `financial_period_archive` before removal. Existing legitimate Q4 records are preserved. No MongoDB collections are dropped. Verify AOS no longer has `FY2022Q1` with `period_end=2021-12-31`; verify `FY2021` annual record and `FY2022Q3` quarter. Backup Atlas before running. This is a targeted repair, not a full historical reconciliation of all potentially mislabeled records.
 
 **Limitations:** An annual fiscal-calendar anchor is required; sparse SEC fact payloads may omit some periods. Fiscal year-end changes, nonstandard fiscal quarters, and 52/53-week companies need manual validation. No live SEC or Atlas integration tests were performed.
+
+### v4.1.8.1 test compatibility hotfix
+Restores safe fiscal-calendar inference for sparse SEC payloads: 10-K balance-sheet-only observations and Q1 cash-flow-only observations. 10-Q comparative balance-sheet snapshots are never used as calendar anchors. Run the `S&P 500 fundamentals v4.1.8.1` workflow with `limit=10`, `force_refresh=true`, `refresh_days=0` after tests pass.
