@@ -1,3 +1,10 @@
+## v4.2.2 — 2026-11-25
+- Derive Q4 additive income-statement metrics from annual minus three standalone fiscal quarters only when source tags and period boundaries match.
+- Populate Q4 year-end balance-sheet instant values with source metadata; leave EPS unestimated.
+- Add opt-in, dry-run-first MongoDB historical backfill and manual GitHub Actions workflow.
+- Add regression tests; preserve existing Q4 cash-flow behavior and other repository contents.
+- Suggested commit: `feat(v4.2.2): complete source-validated Q4 statements with guarded backfill`
+
 ## v4.2.1 — 2026-11-25
 - Correct nested financial metric mapping in read-only quality audit.
 - Avoid 19-quarter false positives; separate historical collector coverage from legacy records.

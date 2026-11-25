@@ -1,6 +1,7 @@
 """v4.1.9: fiscal calendar inference with sparse-fact fixture support."""
 from datetime import date, timedelta
 import calendar
+from .q4_completion import complete_q4
 
 TAGS = {
     'revenue': ['RevenueFromContractWithCustomerExcludingAssessedTax','Revenues','SalesRevenueNet','RevenueFromContractWithCustomerIncludingAssessedTax'],
@@ -250,6 +251,13 @@ def normalize(payload,years=5,today=None):
             if full.get('end')!=annual['period_end'] or ytd[3]['end']!=q3['period_end']:continue
             q4_metrics[metric]=annual['metrics'][metric]-ytd[2]
             q4_sources[metric]={'method':'annual_minus_q3_ytd','annual':full,'q3_ytd':ytd[3]}
+        # Source-aware standalone income statement and fiscal-year-end instants.
+        # EPS intentionally remains absent unless independently reported.
+        additions, addition_sources = complete_q4(annual, [r for r in quarter_rows
+                                           if r['fiscal_year']==fy])
+        for metric, value in additions.items():
+            q4_metrics.setdefault(metric, value)
+            q4_sources.setdefault(metric, addition_sources[metric])
         if q4_metrics:
             key=('quarterly',annual['period_end'])
             q4=rows.setdefault(key,{'period':f'FY{fy}Q4','fiscal_year':fy,'fiscal_period':'Q4',
