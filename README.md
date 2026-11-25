@@ -91,3 +91,12 @@ Open **Actions → Financial data quality audit v4.2.0 → Run workflow**. The s
 The workflow also runs Mondays at 06:45 UTC. To run locally after installing `requirements-largecap.txt`, set `MONGODB_URI` and execute `python -m fundamentals.quality_audit --output artifacts/financial-quality`.
 
 **Scope and interpretation:** This is a *database* audit, not a comparison with fresh SEC source data or a point-in-time S&P 500 constituent list. Five annual and twenty quarterly periods are coverage targets, not universal guarantees. Balance-sheet residuals are flags, not proof of accounting errors; noncontrolling interests and alternate equity tags can explain them. Missing values are counted across existing stored documents; zero is a valid present value. This audit does not edit MongoDB or change the existing v4.1.8.4 collection workflow.
+
+
+## v4.2.1 financial audit corrections (2026-11-25)
+- Reads financial metrics from `metrics` nested document, not top-level fields. Zero counts as present.
+- Balance sheet checks now read the same nested metrics. Discrepancies are review flags only.
+- A company with 19 quarters is not automatically flagged. Under 16 quarters is a review trigger, not proof of a defect.
+- `universe_class` distinguishes historical collector-state CIKs from legacy/orphan records. Neither is independently verified current S&P 500 membership.
+- The collector and MongoDB documents are unchanged. The audit is read-only.
+- Run **Financial data quality audit v4.2.1** and download its artifact.

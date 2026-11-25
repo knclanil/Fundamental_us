@@ -1,3 +1,8 @@
+## v4.2.1 — 2026-11-25
+- Correct nested financial metric mapping in read-only quality audit.
+- Avoid 19-quarter false positives; separate historical collector coverage from legacy records.
+- Add audit regression tests and update workflow version.
+
 ## v4.1.8.4 — 2026-11-25
 - Support quarterly-only SEC Company Facts without inventing annual records.
 - Persist verified 10-Q quarterly rows when no 10-K annual rows exist.

@@ -1,4 +1,4 @@
-name: Financial data quality audit v4.2.0
+name: Financial data quality audit v4.2.1
 on:
   workflow_dispatch:
   schedule:
@@ -25,7 +25,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: maketdata-financial-quality-v4.2.0
+          name: maketdata-financial-quality-v4.2.1
           path: artifacts/financial-quality/
           if-no-files-found: warn
           retention-days: 30
