@@ -1,3 +1,9 @@
+## v4.3.2.15 — GitHub Actions cleanup (2026-11-25)
+- Reduced active GitHub Actions workflows to four clearly named pipelines.
+- Removed redundant scheduled holdings fetch and retired obsolete proof-of-concept/repair workflows.
+- Consolidated SEC-writing workflow concurrency and disabled redundant schedules.
+- No changes to MongoDB schemas, collectors, or stored data.
+
 ## v4.3.2.14 — 2026-11-25
 - Added automatic BlackRock ETF holdings refresh with validated snapshot fallback.
 - Added non-destructive MongoDB company-profile synchronization, issuer identity guards, and resumable SEC financial collection batches.

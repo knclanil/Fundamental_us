@@ -1,5 +1,5 @@
 # v3.2.2 - enabled collection, Alpha Vantage secret preflight, backup and safe push.
-name: Collect market fundamentals
+name: Market Data Collection
 on:
   workflow_dispatch:
     inputs:

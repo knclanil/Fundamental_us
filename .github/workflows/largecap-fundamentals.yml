@@ -1,4 +1,4 @@
-name: Fundamentals collector v4.3.2.13
+name: SEC Fundamentals (Manual)
 on:
   workflow_dispatch:
     inputs:
@@ -29,12 +29,10 @@ on:
         description: Refresh interval in days
         required: true
         default: '7'
-  schedule:
-    - cron: '15 5 * * 1'
 permissions:
   contents: read
 concurrency:
-  group: largecap-fundamentals
+  group: maketdata-sec-writes
   cancel-in-progress: false
 jobs:
   collect:

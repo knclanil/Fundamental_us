@@ -1,4 +1,4 @@
-name: BlackRock ETF universe to MongoDB v4.3.2.14
+name: Company Universe & SEC Sync
 on:
   workflow_dispatch:
     inputs:
@@ -17,7 +17,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: blackrock-universe-db
+  group: maketdata-sec-writes
   cancel-in-progress: false
 jobs:
   sync:

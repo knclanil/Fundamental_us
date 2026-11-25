@@ -1,8 +1,6 @@
-name: Financial data quality audit v4.2.1
+name: Financial Quality Audit (Manual)
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '45 6 * * 1'
 permissions:
   contents: read
 jobs:
