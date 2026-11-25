@@ -54,3 +54,9 @@ Suggested commit: `fix(v4.1.4): reconcile legacy unique indexes and harden SEC c
 - Do not use comparative 10-Q balance-sheet instants as fiscal calendar anchors.
 - Add three sparse-payload regression tests.
 - No MongoDB migration or destructive changes added.
+
+## v4.1.8.3 — 2026-11-25
+- Added read-only SEC_INVENTORY before normalization on explicitly targeted runs.
+- Logs mapped CIK, SEC entity name, namespace/tag inventory, 10-K counts, candidate end dates and recognized metrics.
+- Preserved normalization, MongoDB write safeguards, and existing scheduling defaults.
+- Added inventory unit tests.

@@ -61,3 +61,7 @@ Restores safe fiscal-calendar inference for sparse SEC payloads: 10-K balance-sh
 
 ### v4.1.8.2 targeted diagnostics
 Run the S&P 500 fundamentals workflow with `tickers=XOM,HONA,VYLR`, `limit=10`, `force_refresh=true`. Only those exact symbols are examined. If no annual periods are normalized, `DIAGNOSTIC` logs show counts of SEC 10-K observations, fiscal calendar mismatches, out-of-window facts and duration mismatches. No SEC raw JSON is logged. The collector continues to protect existing financial records when no annual rows are available. The job exits nonzero if any requested company fails; inspect the diagnostic lines rather than refreshing all 500.
+
+
+### v4.1.8.3: Diagnose missing annual periods
+In GitHub Actions select **S&P 500 fundamentals v4.1.8.3**, set `tickers=XOM,HONA,VYLR`, `limit=10`, and `force_refresh=true`. Review `SEC_INVENTORY`, `DIAGNOSTIC`, and `FAILED` lines. `SEC_INVENTORY` prints only for explicitly targeted ticker runs and does not write source payloads to the database. The three tickers may still fail: this release gathers evidence, not a speculative data fix.

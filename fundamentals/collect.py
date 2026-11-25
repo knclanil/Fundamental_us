@@ -7,6 +7,7 @@ from pymongo import MongoClient,UpdateOne,ReplaceOne,ASCENDING
 from .sec_client import SecClient
 from .universe import fetch_large_caps,join_sec
 from .normalize import normalize, diagnose_annual
+from .sec_inventory import inventory
 from .migrate import migrate_all
 
 def now(): return datetime.now(timezone.utc)
@@ -41,7 +42,7 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
     print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
     run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
-    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.8.2','force_refresh':force_refresh})
+    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.8.3','force_refresh':force_refresh})
     try:
         for company in companies[:limit]:
             counts['examined']+=1
@@ -50,6 +51,8 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
             try:
                 payload=sec.company_facts(cik)
                 if int(payload.get('cik',-1))!=cik or not isinstance(payload.get('facts'),dict):raise ValueError('Invalid SEC payload')
+                if requested:
+                    print(f"SEC_INVENTORY {company['ticker']} mapped_cik={cik} mapped_name={company.get('name', company.get('title', ''))!r} {inventory(payload)}", flush=True)
                 rows=normalize(payload,years=years)
                 # Never write two operations for the same database identity.
                 keys=[(r['period_type'],r['period_end']) for r in rows]
