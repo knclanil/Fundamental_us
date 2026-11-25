@@ -1,44 +1,188 @@
+# ============================================================
+# MaketData - Financial Cleanup and SEC Recollection
+#
+# Version: 4.3.2.1
+# Date: 2026-11-25
+#
+# Changelog:
+# v4.3.2.1
+# - Fixed SEC recollection being skipped when apply=false
+# - Replaced placeholder recollection step with real collector
+# - Made company cleanup and SEC recollection independent
+# - Added selectable ticker input
+# - Added force-refresh to bypass collector cooldown
+# - Preserved existing financial repair protections
+# - Added workflow execution summary
+#
+# ============================================================
+
 name: Financial cleanup and SEC recollection v4.3.2
+
 on:
   workflow_dispatch:
     inputs:
+
       apply:
-        description: 'Apply company profile cleanup (default false)'
+        description: 'Apply company profile cleanup'
         type: boolean
         required: true
         default: false
+
       recollect:
-        description: 'Run SEC collector for selected tickers after cleanup'
+        description: 'Run SEC financial recollection'
         type: boolean
         required: true
         default: false
+
+      tickers:
+        description: 'Comma-separated tickers to recollect'
+        type: string
+        required: true
+        default: 'XOM,HONA,VYLR,FDXF,Q,SKYD,FERG,GEHC,SOLV,SW'
+
 permissions:
   contents: read
+
 concurrency:
   group: maketdata-financial-write
   cancel-in-progress: false
+
 jobs:
+
   cleanup:
+
+    name: Financial cleanup and SEC recollection
+
     runs-on: ubuntu-latest
+
     timeout-minutes: 90
+
     env:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
       MONGODB_DATABASE: maketdata
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      # ------------------------------------------------------
+      # 1. Checkout repository
+      # ------------------------------------------------------
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------
+      # 2. Setup Python
+      # ------------------------------------------------------
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install -r requirements-largecap.txt
-      - run: python -m unittest discover -s tests -p 'test_v432*.py' -v
+
+      # ------------------------------------------------------
+      # 3. Install dependencies
+      # ------------------------------------------------------
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-largecap.txt
+
+      # ------------------------------------------------------
+      # 4. Run validation tests
+      # ------------------------------------------------------
+
+      - name: Run financial validation tests
+        run: |
+          python -m unittest discover \
+            -s tests \
+            -p 'test_v432*.py' \
+            -v
+
+      # ------------------------------------------------------
+      # 5. Company profile cleanup
+      # ------------------------------------------------------
+
       - name: Cleanup universe
         run: |
           if [ '${{ inputs.apply }}' = 'true' ]; then
+
+            echo "Running company profile cleanup in APPLY mode"
+
             python -m fundamentals.cleanup_v432 --apply
+
           else
+
+            echo "Running company profile cleanup in DRY RUN mode"
+
             python -m fundamentals.cleanup_v432
+
           fi
+
+      # ------------------------------------------------------
+      # 6. SEC financial recollection
+      # ------------------------------------------------------
+
       - name: Recollect affected tickers
-        if: ${{ inputs.apply && inputs.recollect }}
+
+        if: ${{ inputs.recollect == true }}
+
+        env:
+          SELECTED_TICKERS: ${{ inputs.tickers }}
+
         run: |
-          echo 'Use the standalone migration --reingest flag only after verifying current SEC ticker mappings. Automatic collection is disabled to avoid failing on delisted symbols.'
+
+          echo "=========================================="
+          echo "MaketData SEC Financial Recollection"
+          echo "Version: 4.3.2.1"
+          echo "=========================================="
+
+          echo "Requested tickers: $SELECTED_TICKERS"
+
+          if [ -z "$SELECTED_TICKERS" ]; then
+            echo "ERROR: No tickers supplied"
+            exit 1
+          fi
+
+          python -m fundamentals.collect \
+            --tickers "$SELECTED_TICKERS" \
+            --force-refresh \
+            --years 5 \
+            --refresh-days 7 \
+            --limit 500
+
+          echo "=========================================="
+          echo "SEC recollection command completed"
+          echo "=========================================="
+
+      # ------------------------------------------------------
+      # 7. Workflow summary
+      # ------------------------------------------------------
+
+      - name: Generate workflow summary
+        if: always()
+
+        env:
+          SELECTED_TICKERS: ${{ inputs.tickers }}
+          APPLY_MODE: ${{ inputs.apply }}
+          RECOLLECT_MODE: ${{ inputs.recollect }}
+
+        run: |
+
+          echo "## MaketData Financial Cleanup v4.3.2.1" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "| Parameter | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "| Company cleanup | $APPLY_MODE |" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "| SEC recollection | $RECOLLECT_MODE |" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "| Requested tickers | $SELECTED_TICKERS |" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Review the recollection logs to confirm which companies were processed." >> "$GITHUB_STEP_SUMMARY"
