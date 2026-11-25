@@ -15,7 +15,8 @@ from .normalize import normalize
 from .sec_client import SecClient
 from .quality_audit import reconcile
 
-VERSION = '4.3.0'
+VERSION = '4.3.1'
+from .repair_validation import validate
 
 def missing(value):
     return value is None
@@ -107,20 +108,16 @@ def repair_company(db, sec, company, years=5, apply=False):
                     'period_end':old.get('period_end'),'metric':conflict['metric'],'status':'CONFLICT',
                     'stored':conflict['stored'],'candidate':conflict['sec_candidate'],
                     'source':conflict['source']})
+            approved,decisions=validate(old,candidate,additions)
             for metric,item in additions.items():
-                if metric in ('assets','liabilities','equity') and not check_candidate_balance(old,{metric:item}):
-                    totals['balance_guard_rejections']+=1
-                    records.append({'ticker':ticker,'cik':cik,'collection':kind,'period':old.get('period'),
-                        'period_end':old.get('period_end'),'metric':metric,'status':'BALANCE_REVIEW',
-                        'candidate':item['value'],'source':item['source']})
-                    continue
-                status='PLANNED'
-                if apply:
+                verdict,reason=decisions[metric]
+                status=verdict if verdict!='PASS' else 'VALIDATED'
+                if verdict=='PASS' and apply:
                     status='WRITTEN' if safe_update(coll,old,metric,item['value'],item['source']) else 'WRITE_CONFLICT'
                 totals[status.lower()]+=1
                 records.append({'ticker':ticker,'cik':cik,'collection':kind,'period':old.get('period'),
                     'period_end':old.get('period_end'),'metric':metric,'status':status,
-                    'candidate':item['value'],'source':item['source']})
+                    'candidate':item['value'],'source':item['source'],'detail':reason})
             totals['existing_periods_matched']+=1
     # Explicitly report SEC-normalized periods missing in DB; do not create blindly.
     for key,row in candidates.items():
@@ -156,6 +153,7 @@ def save_report(rows,summary,path,apply):
             'generated_at':datetime.now(timezone.utc).isoformat(),
             'summary':summary,'limitations':[
                 'No existing non-null values corrected automatically',
+                'PASS means automated structural and accounting checks, not independent SEC filing verification',
                 'New periods reported but not inserted automatically',
                 'Industry-specific SEC custom XBRL extensions not parsed',
                 'Unresolved balance-sheet mismatches require source review',

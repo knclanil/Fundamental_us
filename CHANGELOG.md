@@ -1,3 +1,8 @@
+## v4.3.1 — 2026-11-25
+- Add automated SEC provenance and accounting validation gate for financial repair candidates.
+- Allow writes only for PASS candidates, and report REVIEW/FAIL without modifying MongoDB.
+- Replace v4.3.0 workflow with v4.3.1, add validation regression tests.
+
 ## v4.2.2 — 2026-11-25
 - Derive Q4 additive income-statement metrics from annual minus three standalone fiscal quarters only when source tags and period boundaries match.
 - Populate Q4 year-end balance-sheet instant values with source metadata; leave EPS unestimated.
