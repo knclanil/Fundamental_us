@@ -1,3 +1,7 @@
+# Repository operations (v4.3.2.10)
+
+See [repository and database operations](docs/REPOSITORY_AND_DATABASE_OPERATIONS.md) for the read-only storage inventory and cleanup plan. Historical release notes are in `docs/releases/`.
+
 # MaketData — S&P 500 fundamentals v4.1.5
 
 SEC Company Facts → normalized annual/quarterly fundamentals → MongoDB Atlas.
@@ -100,3 +104,8 @@ The workflow also runs Mondays at 06:45 UTC. To run locally after installing `re
 - `universe_class` distinguishes historical collector-state CIKs from legacy/orphan records. Neither is independently verified current S&P 500 membership.
 - The collector and MongoDB documents are unchanged. The audit is read-only.
 - Run **Financial data quality audit v4.2.1** and download its artifact.
+
+
+## Expand beyond S&P 500
+
+See [Company coverage guide](docs/EXPANDING_COMPANY_COVERAGE.md) for adding explicit tickers, mid/small-cap CSV lists, and SEC ticker-feed issuers without changing the database schema.

@@ -1,4 +1,27 @@
+# Credentials and local environments
 .env
+.env.*
+!.env.example
+.venv/
+venv/
+# Python caches and tooling
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+# Local runtime outputs (historical tracked files are unaffected until untracked)
+artifacts/
+reports/
+logs/
+*.log
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

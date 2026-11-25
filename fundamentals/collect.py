@@ -5,7 +5,7 @@ from datetime import datetime,timedelta,timezone
 from uuid import uuid4
 from pymongo import MongoClient,UpdateOne,ReplaceOne,ASCENDING
 from .sec_client import SecClient
-from .universe import fetch_large_caps,join_sec
+from .universe import select_universe,join_sec
 from .normalize import normalize, diagnose_annual
 from .sec_inventory import inventory
 from .migrate import migrate_all
@@ -38,12 +38,12 @@ def indexes(db):
     # Unique financial indexes are built only after safe archival migration.
     db.largecap_collection_state.create_index('last_success_at')
 
-def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None):
+def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None,universe_mode="sp500",universe_file=None):
     if limit<1 or refresh_days<0 or years<1 or min_cap<=0:raise ValueError('Invalid arguments')
     requested={normalize_ticker(t) for t in (tickers or []) if t.strip()}
     print(f'RUN_CONFIG limit={limit} refresh_days={refresh_days} force_refresh={force_refresh} years={years} tickers={sorted(requested)}',flush=True)
-    universe=fetch_large_caps(min_cap)
     official = sec_map(sec)
+    universe=select_universe(universe_mode, official, tickers=tickers, csv_path=universe_file, min_cap=min_cap)
     # Resolve issuer identity BEFORE joining the S&P 500 universe. A ticker
     # feed match is not always the reporting issuer (notably XOM).
     resolved = {}
@@ -57,7 +57,9 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
             if conflict:
                 print(f'CIK_OVERRIDE ticker={ticker} SEC={match["cik"]} resolved={issuer["cik"]}', flush=True)
     companies=join_sec(universe,[{'ticker': t, 'cik_str': v['cik'], 'title': v['sec_name']} for t,v in resolved.items()])
-    companies=[c for c in companies if c['ticker'] not in {'ACU','ADX','AEMRF','AIR','AKZOY','BKTI'}]
+    # Historical exclusions apply only to the S&P 500 membership workflow.
+    if universe_mode == 'sp500':
+        companies=[c for c in companies if c['ticker'] not in {'ACU','ADX','AEMRF','AIR','AKZOY','BKTI'}]
     if requested:
         matched=[c for c in companies if c['ticker'].upper() in requested]
         missing=requested-{c['ticker'].upper() for c in matched}
@@ -75,10 +77,10 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
         if stored and stored.get('cik'):
             if cik10(stored['cik']) != cik10(c['cik']):
                 raise RuntimeError(f'CIK sync required for {c["ticker"]}: DB={stored["cik"]} SEC={c["cik"]}')
-    if not companies:raise RuntimeError('No SEC-mapped large caps; aborting')
+    if not companies:raise RuntimeError('No SEC-mapped companies; aborting')
     print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
-    run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'partial':0,'insufficient_data':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
+    run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'partial':0,'insufficient_data':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source'],'universe_mode':universe_mode}
     db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.8.4','force_refresh':force_refresh})
     try:
         for company in companies[:limit]:
@@ -145,7 +147,7 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
                 # create a second profile with _id=CIK for the same ticker.
                 profile=db.companies.find_one({'ticker':company['ticker']}, {'_id':1})
                 profile_filter={'_id':profile['_id']} if profile else {'_id':cik}
-                db.companies.update_one(profile_filter,{'$set':{k:v for k,v in company.items() if k!='cik'}|{'cik':f'{cik:010d}','universe_class':'tracked_collector','updated_at':now()}},upsert=True)
+                db.companies.update_one(profile_filter,{'$set':{k:v for k,v in company.items() if k!='cik'}|{'cik':f'{cik:010d}','universe_class':'tracked_collector','collector_universe':universe_mode,'updated_at':now()}},upsert=True)
                 db.largecap_collection_state.update_one({'_id':cik},{'$set':{
                     'last_success_at':now(),'last_checked_at':now(),
                     'reporting_status':coverage,'annual_period_count':annual_count,
@@ -169,18 +171,22 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--limit',type=int,default=10)
-    p.add_argument('--tickers',default='',help='Comma-separated exact S&P 500 tickers; only these are examined')
+    p.add_argument('--universe',choices=['sp500','us_large_cap','sec_all','custom','tickers'],default='sp500')
+    p.add_argument('--universe-file',default=None,help='CSV path with ticker header for --universe custom')
+    p.add_argument('--tickers',default='',help='Comma-separated exact tickers within selected universe; only these are examined')
     p.add_argument('--force-refresh',action='store_true',help='Bypass both successful-refresh and failure-retry cooldowns')
     p.add_argument('--refresh-days',type=int,default=7)
     p.add_argument('--years',type=int,default=5)
     p.add_argument('--min-market-cap',type=float,default=10_000_000_000)
     args=p.parse_args()
+    if args.universe=='tickers' and not args.tickers.strip():p.error('--universe tickers requires --tickers')
+    if args.universe in ('custom', 'us_large_cap') and not args.universe_file:p.error('--universe custom requires --universe-file')
     uri=os.environ.get('MONGODB_URI')
     if not uri:p.error('MONGODB_URI missing')
     sec=SecClient(os.environ.get('SEC_USER_AGENT'))
     with MongoClient(uri,tz_aware=True,serverSelectionTimeoutMS=15000) as client:
         client.admin.command('ping')
-        result=run(client[os.environ.get('MONGODB_DATABASE','maketdata')],sec,args.limit,args.refresh_days,args.years,args.min_market_cap,force_refresh=args.force_refresh,tickers=args.tickers.split(',') if args.tickers.strip() else None)
+        result=run(client[os.environ.get('MONGODB_DATABASE','maketdata')],sec,args.limit,args.refresh_days,args.years,args.min_market_cap,force_refresh=args.force_refresh,tickers=args.tickers.split(',') if args.tickers.strip() else None,universe_mode=args.universe,universe_file=args.universe_file)
         print('COLLECTION_SUMMARY',result,flush=True)
         if result['failed']:raise SystemExit(1)
 if __name__=='__main__':main()

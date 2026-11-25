@@ -1,4 +1,4 @@
-"""v4.1.9: fiscal calendar inference with sparse-fact fixture support."""
+"""v4.3.2.9: conservative source-aware SEC Company Facts normalization."""
 from datetime import date, timedelta
 import calendar
 from .q4_completion import complete_q4
@@ -117,6 +117,68 @@ def _actual_period(end, annual_anchor):
     _, year, quarter = min(candidates)
     return year, quarter
 
+def _eligible_companyfacts_observation(item):
+    """Reject explicitly dimensioned observations; unknown context remains unverified.
+
+    SEC Company Facts omits XBRL context dimensions, so a missing `segment`
+    field must NEVER be described as proof of an un-dimensioned filing fact.
+    """
+    return not item.get('segment') and not item.get('dimensions')
+
+
+def _add_verified_eps_components(rows, gaap, today, cutoff, annual_anchor):
+    """Fill missing EPS only when BOTH compatible SEC components are reported.
+
+    Never assume discontinued EPS is zero. Never subtract YTD EPS to invent Q4.
+    Component facts must share accession, start, end, unit and filing form.
+    """
+    for metric, continuing_tag, discontinued_tag in (
+        ('eps_diluted', 'IncomeLossFromContinuingOperationsPerDilutedShare',
+         'IncomeLossFromDiscontinuedOperationsNetOfTaxPerDilutedShare'),
+        ('eps_basic', 'IncomeLossFromContinuingOperationsPerBasicShare',
+         'IncomeLossFromDiscontinuedOperationsNetOfTaxPerBasicShare'),
+    ):
+        def observations(tag):
+            output = {}
+            for item in (gaap.get(tag) or {}).get('units', {}).get('USD/shares', []):
+                try:
+                    if not _eligible_companyfacts_observation(item): continue
+                    end = date.fromisoformat(item['end'])
+                    start = date.fromisoformat(item['start'])
+                    filed = date.fromisoformat(item['filed'])
+                    if not (cutoff <= end <= today and filed <= today and item.get('form') in FORMS): continue
+                    if not isinstance(item.get('val'), (int, float)) or isinstance(item['val'], bool): continue
+                    key = (item.get('accn'), item['start'], item['end'], item['form'])
+                    if not key[0]: continue
+                    # Ambiguous repeated facts with different values cannot be used.
+                    output.setdefault(key, []).append(item)
+                except (KeyError, ValueError, TypeError): continue
+            return output
+        left, right = observations(continuing_tag), observations(discontinued_tag)
+        for key in left.keys() & right.keys():
+            a, b = left[key], right[key]
+            if len({x['val'] for x in a}) != 1 or len({x['val'] for x in b}) != 1: continue
+            item = max(a, key=lambda x: x['filed'])
+            end = date.fromisoformat(key[2]); start = date.fromisoformat(key[1])
+            actual = _actual_period(end, annual_anchor) if annual_anchor else None
+            if not actual: continue
+            fy, quarter = actual
+            annual = key[3] == '10-K' and quarter == 4 and 350 <= (end-start).days+1 <= 381
+            quarterly = key[3] == '10-Q' and quarter in (1, 2, 3) and 70 <= (end-start).days+1 <= 110
+            if not (annual or quarterly): continue
+            row = rows.get(('annual' if annual else 'quarterly', end.isoformat()))
+            if not row or metric in row['metrics']: continue
+            row['metrics'][metric] = a[0]['val'] + b[0]['val']
+            row['metric_sources'][metric] = {
+                'method':'continuing_plus_discontinued', 'derived':True,
+                'accession':key[0], 'start':key[1], 'end':key[2],
+                'filed':item['filed'], 'form':key[3],
+                'tags':[continuing_tag, discontinued_tag],
+                'context_dimensions_verified':False,
+                'review_required':True,
+            }
+
+
 def normalize(payload,years=5,today=None):
     if years < 1: raise ValueError('years must be positive')
     today=today or date.today()
@@ -139,6 +201,7 @@ def normalize(payload,years=5,today=None):
                     filed=date.fromisoformat(item['filed'])
                     form=item.get('form','')
                     if not cutoff<=end<=today or filed>today or form not in FORMS:continue
+                    if not _eligible_companyfacts_observation(item):continue
                     filing_fy=int(item['fy'])
                     filing_fp=str(item['fp']).upper()
                     actual=_actual_period(end,annual_anchor) if annual_anchor else None
@@ -192,6 +255,7 @@ def normalize(payload,years=5,today=None):
                             'tag':tag,'filed':filed.isoformat(),'form':form,
                             'accession':item.get('accn'),
                             'start':start,'end':end.isoformat(),
+                            'context_dimensions_verified':False,
                             'fiscal_year':fy,'fiscal_period':fp,'filing_fy':filing_fy,'filing_fp':filing_fp
                         }
                 except (KeyError,ValueError,TypeError,OverflowError):
@@ -237,6 +301,8 @@ def normalize(payload,years=5,today=None):
             if fp=='Q3' and not (230 <= (date.fromisoformat(src1['end'])-start).days+1 <= 300):continue
             row['metrics'][metric]=current[2]-previous_value
             row['metric_sources'][metric]={'method':'ytd_difference','current':src1,'previous':src0}
+
+    _add_verified_eps_components(rows, gaap, today, cutoff, annual_anchor)
 
     from .balance_sheet import enrich_balance_sheet
     for row in rows.values():

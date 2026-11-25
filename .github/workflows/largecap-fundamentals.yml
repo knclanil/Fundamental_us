@@ -1,7 +1,17 @@
-name: S&P 500 fundamentals v4.1.8.4
+name: Fundamentals collector v4.3.2.12
 on:
   workflow_dispatch:
     inputs:
+      universe:
+        description: "sp500, us_large_cap (requires verified market-cap CSV), tickers, custom, sec_all"
+        type: choice
+        options: [sp500, us_large_cap, tickers, custom, sec_all]
+        default: sp500
+        required: true
+      universe_file:
+        description: "Repo-relative CSV path (required for custom and us_large_cap)"
+        required: false
+        default: ""
       limit:
         description: Maximum companies per run
         required: true
@@ -41,21 +51,31 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install -r requirements-largecap.txt
       - run: python -m unittest discover -s tests -p 'test_largecap.py' -v
+      - run: python -m unittest discover -s tests -p 'test_universe_modes_v43211.py' -v
+      - run: python -m unittest discover -s tests -p 'test_us_large_cap_v43212.py' -v
       - run: python -m unittest discover -s tests -p 'test_migration_indexes.py' -v
       - run: python -m unittest discover -s tests -p 'test_refresh.py' -v
       - run: python -m unittest discover -s tests -p 'test_targeted_diagnostics.py' -v
       - run: python -m unittest discover -s tests -p 'test_sec_inventory.py' -v
       - run: python -m unittest discover -s tests -p 'test_partial_history_v4184.py' -v
       - run: python -m unittest discover -s tests -p 'test_period_integrity_v417.py' -v
+      - run: python -m unittest discover -s tests -p 'test_normalization_v4329.py' -v
       - name: Collect large caps
         env:
           LIMIT: ${{ github.event.inputs.limit || '10' }}
+          UNIVERSE: ${{ github.event.inputs.universe || 'sp500' }}
+          UNIVERSE_FILE: ${{ github.event.inputs.universe_file || '' }}
           REFRESH_DAYS: ${{ github.event.inputs.refresh_days || '7' }}
           FORCE_REFRESH: ${{ github.event.inputs.force_refresh || 'false' }}
           TICKERS: ${{ github.event.inputs.tickers || '' }}
         run: |
           test -n "$MONGODB_URI" && test -n "$SEC_USER_AGENT"
-          EXTRA_ARGS=()
+          EXTRA_ARGS=(--universe "$UNIVERSE")
+          if [ "$UNIVERSE" = "custom" ] || [ "$UNIVERSE" = "us_large_cap" ]; then
+            test -n "$UNIVERSE_FILE" || { echo "selected universe requires universe_file"; exit 1; }
+            EXTRA_ARGS+=(--universe-file "$UNIVERSE_FILE")
+          fi
+          if [ "$UNIVERSE" = "tickers" ] && [ -z "$TICKERS" ]; then echo "tickers universe requires tickers"; exit 1; fi
           if [ "$FORCE_REFRESH" = "true" ]; then EXTRA_ARGS+=(--force-refresh); fi
           if [ -n "$TICKERS" ]; then EXTRA_ARGS+=(--tickers "$TICKERS"); fi
           python -m fundamentals.collect --limit "$LIMIT" --refresh-days "$REFRESH_DAYS" --years 5 "${EXTRA_ARGS[@]}"

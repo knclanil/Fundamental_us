@@ -1,4 +1,4 @@
-"""v4.3.2: non-destructive SEC balance-sheet enrichment and diagnostics."""
+"""v4.3.2.9: non-destructive balance-sheet enrichment and diagnostics."""
 from math import isfinite
 
 def number(x):
