@@ -53,7 +53,7 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(report['summary']['quarterly_documents'],1)
         with tempfile.TemporaryDirectory() as folder:
             write_reports(report,folder)
-            self.assertEqual(json.loads((Path(folder)/'quality_report.json').read_text())['version'],'4.2.1')
+            self.assertEqual(json.loads((Path(folder)/'quality_report.json').read_text())['version'],'4.3.2')
             with (Path(folder)/'company_coverage.csv').open() as handle:
                 self.assertEqual(len(list(csv.DictReader(handle))),1)
             self.assertTrue((Path(folder)/'quality_issues.csv').exists())
