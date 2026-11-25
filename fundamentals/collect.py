@@ -22,6 +22,16 @@ def due(state,refresh_days,force_refresh=False):
     last=aware(state.get('last_success_at'))
     return not last or last<=now()-timedelta(days=refresh_days)
 
+def classify_periods(rows):
+    """Classify normalized SEC coverage without inventing annual facts."""
+    annual=sum(r.get('period_type')=='annual' for r in rows)
+    quarterly=sum(r.get('period_type')=='quarterly' for r in rows)
+    if annual:
+        return 'success',annual,quarterly
+    if quarterly:
+        return 'partial',annual,quarterly
+    return 'insufficient_data',annual,quarterly
+
 def indexes(db):
     db.companies.create_index('ticker')
     # Unique financial indexes are built only after safe archival migration.
@@ -41,8 +51,8 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
         companies=matched
     print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
-    run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
-    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.8.3','force_refresh':force_refresh})
+    run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'partial':0,'insufficient_data':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source']}
+    db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.8.4','force_refresh':force_refresh})
     try:
         for company in companies[:limit]:
             counts['examined']+=1
@@ -58,10 +68,19 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
                 keys=[(r['period_type'],r['period_end']) for r in rows]
                 if len(keys)!=len(set(keys)):
                     raise ValueError('Normalizer produced duplicate financial period identities')
-                if not rows:raise ValueError('No normalized SEC financial periods; preserving previous data')
-                if not any(r['period_type']=='annual' for r in rows):
+                coverage, annual_count, quarterly_count = classify_periods(rows)
+                if coverage != 'success':
                     print(f"DIAGNOSTIC {company['ticker']} {diagnose_annual(payload,years=years)}",flush=True)
-                    raise ValueError('No annual financial periods; preserving previous data')
+                if coverage == 'insufficient_data':
+                    # Never write or prune financial records on an empty response.
+                    db.largecap_collection_state.update_one({'_id':cik},{'$set':{
+                        'reporting_status':coverage,'annual_period_count':0,
+                        'quarterly_period_count':0,'last_checked_at':now(),
+                        'last_error':None,'failures':0,
+                        'next_retry_at':now()+timedelta(days=max(refresh_days,1))}},upsert=True)
+                    counts['insufficient_data']+=1
+                    print(f"INSUFFICIENT_DATA {company['ticker']} CIK={cik} preserved_existing_data=True",flush=True)
+                    continue
                 for kind,coll in (('annual',db.financial_annual),('quarterly',db.financial_quarterly)):
                     selected=[r for r in rows if r['period_type']==kind]
                     if selected:
@@ -82,9 +101,14 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
                     db.financial_period_archive.replace_one({'_id':archive['_id']},archive,upsert=True)
                     db.financial_quarterly.delete_one({'_id':old['_id'],'cik':cik})
                 db.companies.update_one({'_id':cik},{'$set':{k:v for k,v in company.items() if k!='cik'}|{'updated_at':now()}},upsert=True)
-                db.largecap_collection_state.update_one({'_id':cik},{'$set':{'last_success_at':now(),'failures':0,'next_retry_at':None,'last_error':None}},upsert=True)
-                counts['success']+=1
-                print(f"OK {company['ticker']} CIK={cik} periods={len(rows)}",flush=True)
+                db.largecap_collection_state.update_one({'_id':cik},{'$set':{
+                    'last_success_at':now(),'last_checked_at':now(),
+                    'reporting_status':coverage,'annual_period_count':annual_count,
+                    'quarterly_period_count':quarterly_count,
+                    'failures':0,'next_retry_at':None,'last_error':None}},upsert=True)
+                counts[coverage]+=1
+                label='OK' if coverage=='success' else 'PARTIAL'
+                print(f"{label} {company['ticker']} CIK={cik} annual={annual_count} quarterly={quarterly_count} periods={len(rows)}",flush=True)
             except Exception as exc:
                 failures=int((state or {}).get('failures',0))+1
                 db.largecap_collection_state.update_one({'_id':cik},{'$set':{'failures':failures,'next_retry_at':now()+timedelta(hours=min(2**min(failures,6),48)),'last_error':f'{type(exc).__name__}: {exc}'[:400]}},upsert=True)

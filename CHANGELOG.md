@@ -1,3 +1,11 @@
+## v4.1.8.4 — 2026-11-25
+- Support quarterly-only SEC Company Facts without inventing annual records.
+- Persist verified 10-Q quarterly rows when no 10-K annual rows exist.
+- Classify runs as success, partial, or insufficient_data; preserve old data on empty source.
+- Record coverage status and period counts in largecap_collection_state.
+- Preserve existing annual data and do not prune historical quarterly rows on partial collection.
+- Add quarterly-only regression tests and workflow test step.
+
 ## v4.1.8.2 — 2026-11-25
 - Add optional exact-ticker targeted collection without rewriting other companies.
 - Add aggregated SEC annual normalization diagnostics when no annual records are produced.

@@ -65,3 +65,17 @@ Run the S&P 500 fundamentals workflow with `tickers=XOM,HONA,VYLR`, `limit=10`, 
 
 ### v4.1.8.3: Diagnose missing annual periods
 In GitHub Actions select **S&P 500 fundamentals v4.1.8.3**, set `tickers=XOM,HONA,VYLR`, `limit=10`, and `force_refresh=true`. Review `SEC_INVENTORY`, `DIAGNOSTIC`, and `FAILED` lines. `SEC_INVENTORY` prints only for explicitly targeted ticker runs and does not write source payloads to the database. The three tickers may still fail: this release gathers evidence, not a speculative data fix.
+
+
+### v4.1.8.4 — Partial SEC filing history
+A company with verified 10-Q quarterly periods but no 10-K annual periods is now
+reported as `PARTIAL` and its quarterly data is stored. No annual records are
+constructed from 10-Q filings. If no periods normalize, the company is reported
+`INSUFFICIENT_DATA`, existing financial data is preserved, and a retry cooldown
+is applied. Coverage status (`reporting_status`, `annual_period_count`,
+`quarterly_period_count`) is stored in `largecap_collection_state`.
+
+To verify the three recent quarterly-only companies, dispatch the workflow with
+`tickers=XOM,HONA,VYLR`, `limit=10`, `force_refresh=true`. A successful run
+may report `partial=3`, not `success=3`. This does **not** establish five years
+of historical annual data for the three CIKs.

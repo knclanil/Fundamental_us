@@ -1,4 +1,4 @@
-name: S&P 500 fundamentals v4.1.8.3
+name: S&P 500 fundamentals v4.1.8.4
 on:
   workflow_dispatch:
     inputs:
@@ -45,6 +45,7 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_refresh.py' -v
       - run: python -m unittest discover -s tests -p 'test_targeted_diagnostics.py' -v
       - run: python -m unittest discover -s tests -p 'test_sec_inventory.py' -v
+      - run: python -m unittest discover -s tests -p 'test_partial_history_v4184.py' -v
       - run: python -m unittest discover -s tests -p 'test_period_integrity_v417.py' -v
       - name: Collect large caps
         env:
