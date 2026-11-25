@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from pymongo import MongoClient
@@ -90,6 +91,29 @@ def choose_batch(db, profiles, batch_size, snapshot_id):
     return key, start, batch
 
 
+def collection_plan(start, total, batch_size):
+    """Plan the next contiguous batch without wrapping at universe completion."""
+    if not 0 <= start <= total or batch_size < 1:
+        raise ValueError('Invalid collection checkpoint or batch size')
+    return start, min(start + batch_size, total)
+
+
+def record_batch(db, key, snapshot_id, next_offset, total, result):
+    db.universe_sync_state.update_one({'_id': key}, {'$set': {
+        'snapshot_id': snapshot_id, 'next_offset': next_offset,
+        'total': total, 'updated_at': datetime.now(timezone.utc),
+        'last_batch_counts': result}}, upsert=True)
+
+
+def set_action_outputs(continuation, offset, total):
+    output = os.getenv('GITHUB_OUTPUT')
+    if output:
+        with open(output, 'a', encoding='utf-8') as handle:
+            handle.write(f'continuation={str(continuation).lower()}\n')
+            handle.write(f'next_offset={offset}\n')
+            handle.write(f'total={total}\n')
+
+
 def main():
     p = argparse.ArgumentParser(description='Synchronize ETF company profiles and collect resumable SEC batches')
     p.add_argument('--holdings-file', default='data/blackrock_holdings_2026-11-24.csv')
@@ -99,8 +123,13 @@ def main():
     p.add_argument('--years', type=int, default=5)
     p.add_argument('--sync-only', action='store_true')
     p.add_argument('--dry-run', action='store_true')
+    p.add_argument('--full-collection', action='store_true', help='Automatically process successive batches')
+    p.add_argument('--max-runtime-seconds', type=int, default=6300, help='Time budget for full collection; leaves time to dispatch continuation')
     a = p.parse_args()
     if a.batch_size < 1: p.error('batch-size must be positive')
+    if a.max_runtime_seconds < 60: p.error('max-runtime-seconds must be >= 60')
+    if a.sync_only and a.full_collection: p.error('sync-only and full-collection cannot be combined')
+    started = time.monotonic()
     if not os.getenv('MONGODB_URI'): p.error('MONGODB_URI missing')
     if not os.getenv('SEC_USER_AGENT'): p.error('SEC_USER_AGENT missing')
     sec = SecClient(os.environ['SEC_USER_AGENT'])
@@ -120,20 +149,46 @@ def main():
               'batch_size': len(batch), 'market_cap_verified': bool(a.market_cap_file)}), flush=True)
         if a.dry_run or a.sync_only:
             return
-        # A conflict cannot be safely processed by the legacy collector.
-        batch = [x for x in batch if db.companies.find_one({'ticker': x['ticker'], 'cik': x['cik']})]
-        if not batch: raise RuntimeError('All selected batch profiles blocked by identity conflicts')
-        result = run(db, sec, len(batch), a.refresh_days, a.years, 10_000_000_000,
-                     tickers=[x['ticker'] for x in batch], universe_mode='blackrock_holdings',
-                     universe_file=a.holdings_file)
-        if result['failed']:
-            raise RuntimeError(f'Batch has {result["failed"]} failed issuers; cursor not advanced')
-        next_offset = start + min(a.batch_size, len(profiles)-start)
-        db.universe_sync_state.update_one({'_id': key}, {'$set': {
-            'snapshot_id': snapshot_id, 'next_offset': next_offset,
-            'total': len(profiles), 'updated_at': datetime.now(timezone.utc),
-            'last_batch_counts': result}}, upsert=True)
-        print('BATCH_COMPLETE', json.dumps({'next_offset': next_offset, 'total': len(profiles), 'result': result}, default=str), flush=True)
+        # The initial offset is computed once; a full run keeps moving forward.
+        total = len(profiles)
+        if a.full_collection:
+            state = db.universe_sync_state.find_one({'_id': key}) or {}
+            if state.get('snapshot_id') == snapshot_id and int(state.get('next_offset', 0)) >= total:
+                print('FULL_COLLECTION_ALREADY_COMPLETE', json.dumps({'total': total}), flush=True)
+                set_action_outputs(False, total, total)
+                return
+        offset = start
+        batches = 0
+        successes = skips = 0
+        while offset < total:
+            # Reserve enough time for another job to be dispatched by GitHub Actions.
+            if a.full_collection and batches > 0 and time.monotonic() - started >= a.max_runtime_seconds:
+                break
+            _, end = collection_plan(offset, total, a.batch_size)
+            selected = profiles[offset:end]
+            # Refuse to advance past identity conflicts; otherwise issuers are silently lost.
+            blocked = [x['ticker'] for x in selected if not db.companies.find_one({'ticker': x['ticker'], 'cik': x['cik']})]
+            if blocked:
+                raise RuntimeError(f'Batch contains blocked/missing issuer profiles; cursor not advanced: {blocked}')
+            result = run(db, sec, len(selected), a.refresh_days, a.years, 10_000_000_000,
+                         tickers=[x['ticker'] for x in selected], universe_mode='blackrock_holdings',
+                         universe_file=a.holdings_file)
+            if result['failed']:
+                raise RuntimeError(f'Batch has {result["failed"]} failed issuers; cursor not advanced')
+            # Commit checkpoint only after a successful batch.
+            offset = end
+            record_batch(db, key, snapshot_id, offset, total, result)
+            batches += 1
+            successes += result['success']
+            skips += result['skipped']
+            print('BATCH_COMPLETE', json.dumps({'next_offset': offset, 'total': total, 'result': result}, default=str), flush=True)
+            if not a.full_collection:
+                break
+        continuation = a.full_collection and offset < total
+        print('COLLECTION_SUMMARY', json.dumps({'batches': batches, 'success': successes,
+              'skipped': skips, 'next_offset': offset, 'total': total,
+              'continuation_required': continuation}), flush=True)
+        set_action_outputs(continuation, offset, total)
 
 if __name__ == '__main__':
     main()
