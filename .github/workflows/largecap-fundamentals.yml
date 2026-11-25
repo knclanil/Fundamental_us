@@ -1,17 +1,17 @@
-name: Fundamentals collector v4.3.2.12
+name: Fundamentals collector v4.3.2.13
 on:
   workflow_dispatch:
     inputs:
       universe:
-        description: "sp500, us_large_cap (requires verified market-cap CSV), tickers, custom, sec_all"
+        description: "sp500, us_large_cap (market-cap CSV), blackrock_holdings (ETF membership), tickers, custom, sec_all"
         type: choice
-        options: [sp500, us_large_cap, tickers, custom, sec_all]
+        options: [sp500, us_large_cap, blackrock_holdings, tickers, custom, sec_all]
         default: sp500
         required: true
       universe_file:
         description: "Repo-relative CSV path (required for custom and us_large_cap)"
         required: false
-        default: ""
+        default: "data/blackrock_holdings_2026-11-24.csv"
       limit:
         description: Maximum companies per run
         required: true
@@ -71,7 +71,7 @@ jobs:
         run: |
           test -n "$MONGODB_URI" && test -n "$SEC_USER_AGENT"
           EXTRA_ARGS=(--universe "$UNIVERSE")
-          if [ "$UNIVERSE" = "custom" ] || [ "$UNIVERSE" = "us_large_cap" ]; then
+          if [ "$UNIVERSE" = "custom" ] || [ "$UNIVERSE" = "us_large_cap" ] || [ "$UNIVERSE" = "blackrock_holdings" ]; then
             test -n "$UNIVERSE_FILE" || { echo "selected universe requires universe_file"; exit 1; }
             EXTRA_ARGS+=(--universe-file "$UNIVERSE_FILE")
           fi

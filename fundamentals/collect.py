@@ -171,7 +171,7 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--limit',type=int,default=10)
-    p.add_argument('--universe',choices=['sp500','us_large_cap','sec_all','custom','tickers'],default='sp500')
+    p.add_argument('--universe',choices=['sp500','us_large_cap','blackrock_holdings','sec_all','custom','tickers'],default='sp500')
     p.add_argument('--universe-file',default=None,help='CSV path with ticker header for --universe custom')
     p.add_argument('--tickers',default='',help='Comma-separated exact tickers within selected universe; only these are examined')
     p.add_argument('--force-refresh',action='store_true',help='Bypass both successful-refresh and failure-retry cooldowns')
@@ -180,7 +180,7 @@ def main():
     p.add_argument('--min-market-cap',type=float,default=10_000_000_000)
     args=p.parse_args()
     if args.universe=='tickers' and not args.tickers.strip():p.error('--universe tickers requires --tickers')
-    if args.universe in ('custom', 'us_large_cap') and not args.universe_file:p.error('--universe custom requires --universe-file')
+    if args.universe in ('custom', 'us_large_cap', 'blackrock_holdings') and not args.universe_file:p.error('--universe custom requires --universe-file')
     uri=os.environ.get('MONGODB_URI')
     if not uri:p.error('MONGODB_URI missing')
     sec=SecClient(os.environ.get('SEC_USER_AGENT'))

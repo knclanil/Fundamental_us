@@ -91,3 +91,10 @@ Suggested commit: `fix(v4.1.4): reconcile legacy unique indexes and harden SEC c
 - Reports annual/quarterly coverage, missing metrics, fiscal-label issues, duplicate identities, balance-sheet residuals, and YTD cash-flow source date mismatches.
 - Added downloadable JSON and CSV GitHub Actions artifacts, a weekly schedule, and focused regression tests.
 - Does not alter MongoDB documents or attempt automatic accounting corrections.
+
+## 4.3.2.13 — 2026-11-25
+- Added BlackRock IWB/IWM/IWV holdings CSV downloader and schema-aware parser.
+- Added validated ETF holdings snapshot and GitHub Actions artifact refresh workflow.
+- Added `blackrock_holdings` SEC universe option, separate from strict $10B+ universe.
+- Added offline parsing tests using user-provided Nov 24, 2026 holdings files.
+- No automatic market-cap inference, MongoDB deletion, or deployment.

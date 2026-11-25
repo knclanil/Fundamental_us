@@ -124,6 +124,17 @@ def select_universe(mode, official, tickers=None, csv_path=None, min_cap=None):
     custom (explicit symbols from CSV), tickers (explicit symbols from CLI).
     """
     from .cik_sync import normalize_ticker
+    if mode == 'blackrock_holdings':
+        from .blackrock_holdings import read_combined
+        if not csv_path:
+            raise ValueError('blackrock_holdings requires --universe-file')
+        holdings = read_combined(csv_path)
+        return [{'ticker': normalize_ticker(r['ticker']), 'name': r['company_name'],
+                 'universe_source': 'blackrock_etf_holdings_not_market_cap_verified',
+                 'market_cap': None, 'holdings_as_of': r['holdings_as_of'],
+                 'in_IWB': int(r['in_IWB']), 'in_IWM': int(r['in_IWM']),
+                 'in_IWV': int(r['in_IWV'])} for r in holdings
+                if normalize_ticker(r['ticker']) in official]
     if mode == 'us_large_cap':
         return load_us_large_cap(csv_path, official, min_cap or 10_000_000_000)
     if mode == 'sp500':
