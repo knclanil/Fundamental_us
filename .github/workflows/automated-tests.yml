@@ -2,10 +2,12 @@ name: Automated Tests
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
   workflow_dispatch:
 
@@ -52,7 +54,7 @@ jobs:
             -r requirements-largecap.txt \
             -r v4_mongodb/requirements.txt
 
-      # Step 4: Install additional testing dependencies
+      # Step 4: Install testing dependencies
       - name: Install testing dependencies
         run: |
           python -m pip install \
@@ -61,7 +63,12 @@ jobs:
             pandas \
             duckdb
 
-      # Step 5: Verify dependencies
+      # Step 5: Fix SEC EDGAR API compatibility
+      - name: Fix SEC EDGAR rate limiter compatibility
+        run: |
+          python -m pip install "pyrate-limiter>=2.10,<3"
+
+      # Step 6: Verify installed dependencies
       - name: Verify dependencies
         run: |
           python -m pip check
@@ -71,12 +78,12 @@ jobs:
           python -c "import pymongo; print('pymongo OK')"
           python -c "from sec_edgar_api import EdgarClient; print('SEC EDGAR API OK')"
 
-      # Step 6: Compile Python source
+      # Step 7: Validate Python syntax
       - name: Compile Python source
         run: |
           python -m compileall -q fundamentals tests v4_mongodb
 
-      # Step 7: Run automated tests
+      # Step 8: Run automated tests
       - name: Run all automated tests
         shell: bash
         run: |
@@ -91,7 +98,7 @@ jobs:
             --junitxml=test-artifacts/pytest-results.xml \
             2>&1 | tee test-artifacts/pytest-output.txt
 
-      # Step 8: Upload test reports
+      # Step 9: Upload test results
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
