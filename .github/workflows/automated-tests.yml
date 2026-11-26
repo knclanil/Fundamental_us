@@ -3,8 +3,10 @@ name: Automated Tests
 on:
   push:
     branches: [main]
+
   pull_request:
     branches: [main]
+
   workflow_dispatch:
 
 permissions:
@@ -18,33 +20,78 @@ jobs:
   pytest:
     name: Python tests (3.11)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+
     env:
-      PYTHONDONTWRITEBYTECODE: '1'
-      PYTHONUNBUFFERED: '1'
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+
     steps:
+      # Step 1: Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Step 2: Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
           cache: pip
           cache-dependency-path: |
             requirements.txt
             requirements-largecap.txt
-      - name: Install test dependencies
+            v4_mongodb/requirements.txt
+
+      # Step 3: Install project dependencies
+      - name: Install project dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt -r requirements-largecap.txt pytest pytest-cov
+
+          python -m pip install \
+            -r requirements.txt \
+            -r requirements-largecap.txt \
+            -r v4_mongodb/requirements.txt
+
+      # Step 4: Install additional testing dependencies
+      - name: Install testing dependencies
+        run: |
+          python -m pip install \
+            pytest \
+            pytest-cov \
+            pandas \
+            duckdb
+
+      # Step 5: Verify dependencies
+      - name: Verify dependencies
+        run: |
+          python -m pip check
+
+          python -c "import pandas; print('pandas OK')"
+          python -c "import duckdb; print('duckdb OK')"
+          python -c "import pymongo; print('pymongo OK')"
+          python -c "from sec_edgar_api import EdgarClient; print('SEC EDGAR API OK')"
+
+      # Step 6: Compile Python source
       - name: Compile Python source
-        run: python -m compileall -q fundamentals tests v4_mongodb
+        run: |
+          python -m compileall -q fundamentals tests v4_mongodb
+
+      # Step 7: Run automated tests
       - name: Run all automated tests
+        shell: bash
         run: |
           mkdir -p test-artifacts
-          python -m pytest -q tests v4_mongodb/tests --junitxml=test-artifacts/pytest-results.xml 2>&1 | tee test-artifacts/pytest-output.txt
-          exit ${PIPESTATUS[0]}
-        shell: bash
+
+          set -o pipefail
+
+          python -m pytest \
+            -q \
+            tests \
+            v4_mongodb/tests \
+            --junitxml=test-artifacts/pytest-results.xml \
+            2>&1 | tee test-artifacts/pytest-output.txt
+
+      # Step 8: Upload test reports
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
