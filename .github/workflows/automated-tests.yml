@@ -1,0 +1,55 @@
+name: Automated Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: automated-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: Python tests (3.11)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-largecap.txt
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-largecap.txt pytest pytest-cov
+      - name: Compile Python source
+        run: python -m compileall -q fundamentals tests v4_mongodb
+      - name: Run all automated tests
+        run: |
+          mkdir -p test-artifacts
+          python -m pytest -q tests v4_mongodb/tests --junitxml=test-artifacts/pytest-results.xml 2>&1 | tee test-artifacts/pytest-output.txt
+          exit ${PIPESTATUS[0]}
+        shell: bash
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: automated-test-results-${{ github.run_number }}
+          path: test-artifacts/
+          if-no-files-found: warn
+          retention-days: 30

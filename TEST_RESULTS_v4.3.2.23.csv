@@ -1,0 +1,11 @@
+test_id,scenario,status,evidence
+SAFETY-001,preserve reconciled,PASS,pytest targeted2: 20 passed
+SAFETY-002,reject other period,PASS,pytest targeted2: 20 passed
+SAFETY-003,reject wrong form,PASS,pytest targeted2: 20 passed
+SAFETY-004,no cross-accession,PASS,pytest targeted2: 20 passed
+SAFETY-005,reject incomplete,PASS,pytest targeted2: 20 passed
+SAFETY-006,noncontrolling interest,PASS,pytest targeted2: 20 passed
+SAFETY-007,quarterly 10-Q,PASS,pytest targeted2: 20 passed
+SAFETY-008,idempotency,PASS,pytest targeted2: 20 passed
+SAFETY-009,reject unreconciled,PASS,pytest targeted2: 20 passed
+SAFETY-010,source provenance,PASS,pytest targeted2: 20 passed
