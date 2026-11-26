@@ -19,6 +19,47 @@ def assess(m):
     return {'status':'scale_outlier' if ratio>10 else ('reconciled' if abs(residual)/a<=.02 else 'unreconciled'),
             'residual':residual,'relative_difference':abs(residual)/a,'claims_to_assets':ratio}
 
+def reconciliation_diagnostics(metrics, sources=None):
+    """Read-only, source-aware reconciliation alternatives; never mutate SEC facts.
+
+    Alternative equations are hypotheses, not permission to repair stored values.
+    """
+    m = metrics or {}
+    sources = sources or {}
+    base = assess(m)
+    out = {'reported': base, 'alternatives': [], 'source_review': {}}
+    for key in ('assets', 'liabilities', 'equity', 'equity_including_nci',
+                'noncontrolling_interest', 'redeemable_nci',
+                'liabilities_and_stockholders_equity'):
+        src = sources.get(key)
+        if src is not None:
+            out['source_review'][key] = src
+    a, l = m.get('assets'), m.get('liabilities')
+    if not (number(a) and a > 0 and number(l)):
+        return out
+    candidates = []
+    e, ei, n, r = (m.get(k) for k in ('equity','equity_including_nci',
+                                     'noncontrolling_interest','redeemable_nci'))
+    if number(e):
+        candidates.append(('parent_equity_only', l + e))
+        if number(n):
+            candidates.append(('parent_equity_plus_nci', l + e + n))
+    if number(ei):
+        candidates.append(('equity_including_nci', l + ei))
+    if number(r) and number(ei):
+        candidates.append(('equity_including_nci_plus_redeemable', l + ei + r))
+    combined = m.get('liabilities_and_stockholders_equity')
+    if number(combined):
+        candidates.append(('sec_reported_liabilities_and_equity_total', combined))
+    for label, claims in candidates:
+        residual = a - claims
+        out['alternatives'].append({'equation':label,'residual':residual,
+                                    'relative_difference':abs(residual)/a,
+                                    'within_tolerance':abs(residual)/a <= .02})
+    out['review_required'] = base['status'] in ('unreconciled','scale_outlier')
+    return out
+
+
 def enrich_balance_sheet(m, sources=None):
     """Only fill absent liabilities; never overwrite SEC-reported liabilities.
 

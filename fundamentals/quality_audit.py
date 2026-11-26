@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from pymongo import MongoClient
-from .balance_sheet import assess
+from .balance_sheet import assess, reconciliation_diagnostics
 
 METRICS = ('revenue','net_income','eps_basic','eps_diluted','assets','liabilities','equity',
            'operating_cash_flow','capex','free_cash_flow')
@@ -79,7 +79,8 @@ def reconcile(rows):
                            'period_end':iso(row.get('period_end')),
                            'residual':check['residual'],
                            'relative_to_assets':round(check['relative_difference'],6),
-                           'note':'Review SEC provenance; do not auto-overwrite reported facts'})
+                           'note':'Review SEC provenance; do not auto-overwrite reported facts',
+                           'diagnostics':reconciliation_diagnostics(row.get('metrics') or {}, row.get('metric_sources') or {})})
     return issues
 
 def analyze_company(company,annual,quarterly,state=None):
