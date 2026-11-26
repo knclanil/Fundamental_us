@@ -3,6 +3,7 @@ import argparse
 import os
 from datetime import datetime,timedelta,timezone
 from uuid import uuid4
+import requests
 from pymongo import MongoClient,UpdateOne,ReplaceOne,ASCENDING
 from .sec_client import SecClient
 from .universe import select_universe,join_sec
@@ -80,7 +81,7 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
     if not companies:raise RuntimeError('No SEC-mapped companies; aborting')
     print('MIGRATION_SUMMARY', migrate_all(db), flush=True)
     indexes(db)
-    run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'partial':0,'insufficient_data':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source'],'universe_mode':universe_mode}
+    run_id=str(uuid4()); counts={'eligible':len(companies),'examined':0,'success':0,'partial':0,'insufficient_data':0,'sec_companyfacts_unavailable':0,'skipped':0,'failed':0,'universe_source':universe[0]['universe_source'],'universe_mode':universe_mode}
     db.pipeline_runs.insert_one({'_id':run_id,'started_at':now(),'status':'running','version':'4.1.8.4','force_refresh':force_refresh})
     try:
         for company in companies[:limit]:
@@ -156,6 +157,27 @@ def run(db,sec,limit,refresh_days,years,min_cap,force_refresh=False,tickers=None
                 counts[coverage]+=1
                 label='OK' if coverage=='success' else 'PARTIAL'
                 print(f"{label} {company['ticker']} CIK={cik} annual={annual_count} quarterly={quarterly_count} periods={len(rows)}",flush=True)
+            except requests.HTTPError as exc:
+                # A verified issuer may have no SEC XBRL Company Facts resource.
+                # In particular, PFBC / Preferred Bank (CIK 1492165) files
+                # financial reports with the FDIC, not SEC XBRL companyfacts.
+                # Never invent a replacement CIK or mark this as a success.
+                status = getattr(getattr(exc, 'response', None), 'status_code', None)
+                if status == 404:
+                    db.largecap_collection_state.update_one({'_id': cik}, {'$set': {
+                        'reporting_status': 'sec_companyfacts_unavailable',
+                        'last_checked_at': now(),
+                        'last_error': f'HTTP 404: SEC companyfacts unavailable for CIK {cik}',
+                        'failures': 0,
+                        'next_retry_at': now()+timedelta(days=max(refresh_days, 1)),
+                    }}, upsert=True)
+                    counts['sec_companyfacts_unavailable'] += 1
+                    print(f'SEC_COMPANYFACTS_UNAVAILABLE {company["ticker"]} CIK={cik} HTTP=404 preserved_existing_data=True', flush=True)
+                    continue
+                failures=int((state or {}).get('failures',0))+1
+                db.largecap_collection_state.update_one({'_id':cik},{'$set':{'failures':failures,'next_retry_at':now()+timedelta(hours=min(2**min(failures,6),48)),'last_error':f'{type(exc).__name__}: {exc}'[:400]}},upsert=True)
+                counts['failed']+=1
+                print(f"FAILED {company['ticker']}: {type(exc).__name__}: {exc}",flush=True)
             except Exception as exc:
                 failures=int((state or {}).get('failures',0))+1
                 db.largecap_collection_state.update_one({'_id':cik},{'$set':{'failures':failures,'next_retry_at':now()+timedelta(hours=min(2**min(failures,6),48)),'last_error':f'{type(exc).__name__}: {exc}'[:400]}},upsert=True)
