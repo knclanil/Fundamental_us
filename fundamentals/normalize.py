@@ -182,7 +182,11 @@ def _add_verified_eps_components(rows, gaap, today, cutoff, annual_anchor):
 def normalize(payload,years=5,today=None):
     if years < 1: raise ValueError('years must be positive')
     today=today or date.today()
-    cutoff=date(today.year-years,today.month,min(today.day,28))
+    # SEC annual fiscal year-ends often precede the calendar lookback date.
+    # Fetch one additional year of observations, then bound the output by
+    # the most recent `years` fiscal-year labels below. This avoids silently
+    # losing the fifth annual year just because its end is a few weeks early.
+    cutoff=date(today.year-years-1,today.month,min(today.day,28))
     facts=payload.get('facts') or {}
     gaap=facts.get('us-gaap') or {}
     dei=facts.get('dei') or {}
@@ -358,6 +362,12 @@ def normalize(payload,years=5,today=None):
         # A row with only an instant value is still valid; consumers can
         # inspect missing fields rather than treating them as zeros.
         if m:result.append(row)
+    # Retain the requested number of annual fiscal years and their quarters.
+    # Do not use a rolling calendar-day cutoff as a substitute for fiscal years.
+    annual_years=sorted({r['fiscal_year'] for r in result if r['period_type']=='annual'},reverse=True)
+    if len(annual_years)>years:
+        keep=set(annual_years[:years])
+        result=[r for r in result if r['fiscal_year'] in keep]
     return sorted(result,key=lambda r:(r['period_end'],r['period_type']))
 
 

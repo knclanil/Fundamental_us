@@ -32,7 +32,7 @@ def align_balance_sheet(row, observations):
         return abs(a-l-e-(m.get('redeemable_nci') or 0))/a
 
     original = score(metrics)
-    if original is None or original <= .02: return False
+    if original is not None and original <= .02: return False
     candidates = []
     for accn, facts in by_accession.items():
         if not {'assets','liabilities'} <= facts.keys(): continue
@@ -42,7 +42,7 @@ def align_balance_sheet(row, observations):
         for k in KEYS: proposed.pop(k, None)
         for k, fact in facts.items(): proposed[k] = fact['val']
         s = score(proposed)
-        if s is not None and s <= .02 and s < original:
+        if s is not None and s <= .02 and (original is None or s < original):
             candidates.append((s, -max(x['filed'] for x in facts.values()).toordinal(), accn, proposed, facts))
     if not candidates: return False
     _, _, accn, proposed, facts = min(candidates, key=lambda x:(x[0],x[1],x[2]))
