@@ -190,6 +190,7 @@ def normalize(payload,years=5,today=None):
         raise ValueError('Invalid SEC facts')
     annual_anchor=_fiscal_calendar(gaap,today)
     rows={}
+    instant_observations=[]
     cumulative={}  # (metric, actual YTD end date): latest eligible SEC YTD observation
     for metric,tags in TAGS.items():
         for rank,tag in enumerate(tags):
@@ -219,6 +220,10 @@ def normalize(payload,years=5,today=None):
                     start=item.get('start')
                     if metric in INSTANT:
                         if start:continue
+                        if metric in ('assets','liabilities','equity','equity_including_nci','noncontrolling_interest','redeemable_nci') and item.get('accn') and isinstance(item.get('val'), (int,float)) and not isinstance(item['val'],bool):
+                            instant_observations.append({'metric':metric,'tag':tag,'val':item['val'],
+                                'end':end.isoformat(),'filed':filed,'form':form,
+                                'accn':item['accn'],'rank':rank})
                     else:
                         if not start:continue
                         start_date=date.fromisoformat(start)
@@ -304,8 +309,10 @@ def normalize(payload,years=5,today=None):
 
     _add_verified_eps_components(rows, gaap, today, cutoff, annual_anchor)
 
+    from .fact_alignment import align_balance_sheet
     from .balance_sheet import enrich_balance_sheet
     for row in rows.values():
+        align_balance_sheet(row, instant_observations)
         enrich_balance_sheet(row['metrics'], row['metric_sources'])
 
     # Q4 is derived only from annual data and an actual Q3 reporting period
